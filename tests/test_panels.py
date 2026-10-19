@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from mirsolo.bootstrap import build_session, populate
 from mirsolo.components import Bag, Loadout, Position, Progression, Wallet, Warehouse
-from mirsolo.data.loader import GameData
+from mirsolo.data.loader import SLOTS, GameData
 from mirsolo.economy.shop import buy, buy_price, sell_price
 from mirsolo.items.equipment import equip
 from mirsolo.presentation.panels import (
@@ -126,12 +126,23 @@ def test_max_rows_matches_screen_capacity():
 # ── 角色面板 ────────────────────────────────────────
 
 @case
-def test_character_panel_lists_eight_slots_and_matches_loadout():
+def test_slot_names_match_loader_slots_exactly():
+    """面板槽位必须与 ``loader.SLOTS`` 一一对应。
+
+    以前两处各写一份（面板 8 个含腰带/靴子，loader 7 个含蜡烛），
+    面板显示"腰带"但 loader 会拒绝任何 belt 装备。改成派生后由这条钉住。
+    """
+    assert set(SLOT_NAMES) == set(SLOTS), (sorted(SLOT_NAMES), sorted(SLOTS))
+    assert len(SLOT_NAMES) == 7
+
+
+@case
+def test_character_panel_lists_every_slot_and_matches_loadout():
     session, player = _session()
     try:
         panel = build_character_panel(player=player, data=DATA)
         unequip_rows = [r for r in panel.rows if r.action == "unequip"]
-        assert len(unequip_rows) == len(SLOT_NAMES) == 8
+        assert len(unequip_rows) == len(SLOT_NAMES) == 7
         assert all(not r.enabled for r in unequip_rows), "初始应为全空槽"
         # 动作负载是槽名（不是 item_id）——脱装备按槽定位
         assert {r.item for r in unequip_rows} == set(SLOT_NAMES)
@@ -187,8 +198,11 @@ def test_shop_stock_covers_all_equipment_and_books():
     """货架 = 全部装备 + 全部技能书，且显示的是**买入价**（不是回收价）。"""
     stock = shop_stock(DATA)
     kinds = [ITEMS[i]["kind"] for i in stock]
-    assert kinds.count("equip") == 8, kinds.count("equip")
-    assert kinds.count("book") == 16, kinds.count("book")
+    # 不写死 8/16：装备表加了东西（P2 的赤月/牛魔 6 件）就该跟着变，
+    # 写死数字只会让"新装备永远进不了货架"这种事故被藏起来。
+    assert len(stock) == len(ITEMS), (len(stock), len(ITEMS))
+    assert kinds.count("equip") == sum(1 for i in ITEMS.values() if i["kind"] == "equip")
+    assert kinds.count("book") == sum(1 for i in ITEMS.values() if i["kind"] == "book")
     prices = [buy_price(DATA, i) for i in stock]
     assert prices == sorted(prices), "货架应按价格升序，玩家一眼看到买得起的"
 

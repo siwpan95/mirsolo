@@ -79,7 +79,7 @@
     },
     "kulou": {
       "name": "骷髅",
-      "level": 10,
+      "level": 11,
       "hp": 35,
       "exp": 90,
       "dc": [
@@ -408,6 +408,150 @@
       ],
       "accuracy": 26,
       "agility": 11,
+      "attack_speed": 5,
+      "ai": "elite",
+      "move_speed": 0.8,
+      "size": 2
+    },
+    "chiyue_mozhu": {
+      "name": "赤月魔蛛",
+      "level": 50,
+      "hp": 760,
+      "exp": 1900,
+      "dc": [
+        28,
+        46
+      ],
+      "ac": [
+        11,
+        19
+      ],
+      "mac": [
+        5,
+        9
+      ],
+      "accuracy": 23,
+      "agility": 14,
+      "attack_speed": 5,
+      "ai": "aggressive",
+      "move_speed": 1.2,
+      "size": 1
+    },
+    "xuejiangshi": {
+      "name": "血僵尸",
+      "level": 50,
+      "hp": 980,
+      "exp": 2100,
+      "dc": [
+        30,
+        48
+      ],
+      "ac": [
+        12,
+        20
+      ],
+      "mac": [
+        4,
+        8
+      ],
+      "accuracy": 22,
+      "agility": 9,
+      "attack_speed": 4,
+      "ai": "aggressive",
+      "move_speed": 0.9,
+      "size": 1
+    },
+    "chiyue_emo": {
+      "name": "赤月恶魔",
+      "level": 51,
+      "hp": 1350,
+      "exp": 2600,
+      "dc": [
+        33,
+        52
+      ],
+      "ac": [
+        13,
+        22
+      ],
+      "mac": [
+        6,
+        10
+      ],
+      "accuracy": 25,
+      "agility": 12,
+      "attack_speed": 5,
+      "ai": "elite",
+      "move_speed": 1.0,
+      "size": 1
+    },
+    "niumo_zhanshi": {
+      "name": "牛魔战士",
+      "level": 51,
+      "hp": 1150,
+      "exp": 2800,
+      "dc": [
+        36,
+        56
+      ],
+      "ac": [
+        14,
+        23
+      ],
+      "mac": [
+        5,
+        9
+      ],
+      "accuracy": 26,
+      "agility": 11,
+      "attack_speed": 5,
+      "ai": "aggressive",
+      "move_speed": 1.0,
+      "size": 1
+    },
+    "niumo_fashi": {
+      "name": "牛魔法师",
+      "level": 52,
+      "hp": 1020,
+      "exp": 3000,
+      "dc": [
+        38,
+        60
+      ],
+      "ac": [
+        12,
+        20
+      ],
+      "mac": [
+        8,
+        14
+      ],
+      "accuracy": 27,
+      "agility": 12,
+      "attack_speed": 5,
+      "ai": "aggressive",
+      "move_speed": 1.0,
+      "size": 1
+    },
+    "niumo_wang": {
+      "name": "牛魔王",
+      "level": 52,
+      "hp": 3400,
+      "exp": 5600,
+      "dc": [
+        42,
+        68
+      ],
+      "ac": [
+        16,
+        28
+      ],
+      "mac": [
+        8,
+        15
+      ],
+      "accuracy": 30,
+      "agility": 12,
       "attack_speed": 5,
       "ai": "elite",
       "move_speed": 0.8,

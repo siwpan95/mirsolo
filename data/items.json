@@ -521,6 +521,148 @@
       "level_req": 35,
       "price": 17500,
       "tier": "book"
+    },
+    "chiyue_mojian": {
+      "name": "赤月魔剑",
+      "slot": "weapon",
+      "class": [
+        "warrior"
+      ],
+      "atk": [
+        22,
+        36
+      ],
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 26,
+      "durability": 26,
+      "level_req": 48,
+      "price": 26000,
+      "tier": "rare",
+      "kind": "equip"
+    },
+    "chiyue_mozhang": {
+      "name": "赤月魔杖",
+      "slot": "weapon",
+      "class": [
+        "mage"
+      ],
+      "atk": null,
+      "mc": [
+        12,
+        20
+      ],
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 12,
+      "durability": 20,
+      "level_req": 48,
+      "price": 26000,
+      "tier": "rare",
+      "kind": "equip"
+    },
+    "chiyue_daojian": {
+      "name": "赤月道剑",
+      "slot": "weapon",
+      "class": [
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": [
+        12,
+        20
+      ],
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 14,
+      "durability": 22,
+      "level_req": 48,
+      "price": 26000,
+      "tier": "rare",
+      "kind": "equip"
+    },
+    "chiyue_zhanjia": {
+      "name": "赤月战甲",
+      "slot": "armor",
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        9,
+        13
+      ],
+      "mac": [
+        2,
+        4
+      ],
+      "accuracy": 0,
+      "weight": 24,
+      "durability": 28,
+      "level_req": 48,
+      "price": 30000,
+      "tier": "rare",
+      "kind": "equip"
+    },
+    "niumo_zhanfu": {
+      "name": "牛魔战斧",
+      "slot": "weapon",
+      "class": [
+        "warrior"
+      ],
+      "atk": [
+        26,
+        42
+      ],
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 30,
+      "durability": 30,
+      "level_req": 50,
+      "price": 42000,
+      "tier": "rare",
+      "kind": "equip"
+    },
+    "niumo_toukui": {
+      "name": "牛魔头盔",
+      "slot": "helmet",
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        5,
+        8
+      ],
+      "mac": [
+        2,
+        4
+      ],
+      "accuracy": 0,
+      "weight": 12,
+      "durability": 20,
+      "level_req": 50,
+      "price": 20000,
+      "tier": "rare",
+      "kind": "equip"
     }
   }
 }

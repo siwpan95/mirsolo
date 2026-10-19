@@ -33,7 +33,7 @@ from mirsolo.components import (
     Wallet,
     Warehouse,
 )
-from mirsolo.data.loader import GameData
+from mirsolo.data.loader import SLOTS, GameData
 from mirsolo.economy.shop import buy_price, sell_price
 from mirsolo.presentation.hud import Rect, TextAnchor
 
@@ -48,16 +48,22 @@ ROW_GAP = 2.0
 COLUMN_GAP = 12.0
 
 #: 槽位的中文名（原版叫法，装备面板直接显示）
-SLOT_NAMES: dict[str, str] = {
+#: 槽位 → 中文名。**键必须覆盖 ``loader.SLOTS`` 全部、且不多不少**——
+#: 以前这里是独立写的 8 个（腰带/靴子），而 loader 认的是 7 个（含蜡烛），
+#: 结果面板显示"腰带"但 loader 会拒绝任何 belt 装备（双份事实来源，踩过）。
+#: 现在由 ``SLOTS`` 派生，多一个/少一个都会 KeyError，由门禁
+#: ``slot-names-match`` 钉住。
+SLOT_LABELS: dict[str, str] = {
     "weapon": "武器",
     "armor": "衣服",
     "helmet": "头盔",
     "necklace": "项链",
     "bracelet": "手镯",
     "ring": "戒指",
-    "belt": "腰带",
-    "boots": "靴子",
+    "candle": "蜡烛",
 }
+
+SLOT_NAMES: dict[str, str] = {slot: SLOT_LABELS[slot] for slot in SLOTS}
 
 
 @dataclass(frozen=True)

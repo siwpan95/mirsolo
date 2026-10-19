@@ -145,7 +145,8 @@ def test_hud_counts_texts():
 def test_hud_handles_max_level_caption():
     from mirsolo.components import Progression as P
 
-    layout = _layout(progression=P(level=50, exp=0))
+    # 52 是封顶级（P2 起从 50 抬到 52）
+    layout = _layout(progression=P(level=52, exp=0))
     assert layout.exp.caption == "MAX"
     assert layout.exp.ratio == 0.0
 

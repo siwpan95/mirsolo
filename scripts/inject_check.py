@@ -64,6 +64,16 @@ INJECTIONS = [
      "    elapsed = int(status.get(\"elapsed\", 0))",
      "    elapsed = 0",
      "tests.test_presentation"),
+    ("赤月退回祖玛换皮怪（后段图又变成祖玛翻版）",
+     ROOT / "data/maps.json",
+     '"monster": "chiyue_mozhu",',
+     '"monster": "zumma_weishi",',
+     "tests.test_data"),
+    ("怪等级远低于地图带（50 级图刷 15 级怪）",
+     ROOT / "data/monsters.json",
+     '"name": "赤月魔蛛",\n      "level": 50,',
+     '"name": "赤月魔蛛",\n      "level": 15,',
+     "tests.test_data"),
 ]
 
 

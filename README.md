@@ -76,11 +76,11 @@ mirsolo/
       smoke.py          headless 冒烟（10Hz 定步推演）
       play.py           进游戏窗口（--shot 单帧截图，无 GL 时给出可操作提示）
   data/                 九张数值表（手录，1.76 骨架口径）
-    exp.json            1-50 级经验曲线
+    exp.json            1-52 级经验曲线（1-50 为国服 1.76 口径，50-52 外推，见文档）
     classes.json        三职业基础属性与成长（含 mc/sc）
     skills.json         技能表（三职业 16 技 + 技能书；P1-S2 起全部 kind 有行为）
-    monsters.json       怪物表（17 种，AI 三档：passive/aggressive/elite）
-    items.json          装备 8 件 + 技能书 16 本（book 的 teaches 双向校验）
+    monsters.json       怪物表（23 种，AI 三档：passive/aggressive/elite）
+    items.json          装备 14 件（含 P2 赤月/牛魔终局 6 件）+ 技能书 16 本
     drops.json          掉落表（组权重 + gold 区间）
     maps.json           地图与刷新/传送表（11 张，等级带 1-52 连续，含战役图 sabak）
     sieges.json         攻城战役表（波次/目标/守军/增援/奖励）
@@ -119,7 +119,7 @@ mirsolo/
 ## 测试与验收
 
 ```bat
-python -m tests.run_tests              :: 14 个模块，185 项无窗口单测
+python -m tests.run_tests              :: 14 个模块，189 项无窗口单测
 python -m mirsolo.cli.smoke --ticks 3000   :: headless 冒烟（含确定性复跑）
 python -m mirsolo.cli.play --level 50 --gear --siege sabak --shot shots\siege.png
                                        :: 攻城验收：开窗即开战，顶部战役状态条

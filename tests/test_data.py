@@ -82,10 +82,18 @@ def test_bosses_are_elite_and_slow_respawn():
 
 
 @case
-def test_exp_covers_1_to_50():
-    assert DATA.max_level() == 50
-    for level in range(1, 51):
+def test_exp_covers_1_to_52():
+    """经验表必须覆盖到地图等级带的顶（P2 延到 52）。
+
+    地图带扩到 52 而经验表还停在 50，玩家在赤月/牛魔会"升不动级"——
+    这个断言就是防止两头脱节。
+    """
+    assert DATA.max_level() == 52
+    for level in range(1, 53):
         assert str(level) in DATA.exp_levels
+    # 只有封顶级允许 0（loader 校验）；51 级必须还要经验才能到 52
+    assert int(DATA.exp_levels["51"]) > 0
+    assert int(DATA.exp_levels["52"]) == 0
 
 
 @case
@@ -176,6 +184,58 @@ def test_skill_class_must_exist():
         assert any("ninja" in e for e in bad.errors), bad.errors
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+@case
+def test_endgame_maps_have_their_own_monsters():
+    """后段图不能只是"祖玛换皮"——必须有自家怪种。
+
+    P2 之前赤月/牛魔刷的是祖玛卫士 + 恶魔弓箭手，玩家会觉得
+    "换张图但怪一模一样"。
+    """
+    expected = {
+        "chiyue_valley": {"chiyue_mozhu", "xuejiangshi", "chiyue_emo"},
+        "niumo_cave": {"niumo_zhanshi", "niumo_fashi", "niumo_wang"},
+    }
+    for map_id, own in expected.items():
+        spawns = {s["monster"] for s in DATA.maps["maps"][map_id]["spawns"]}
+        assert own <= spawns, (map_id, sorted(own - spawns))
+        assert "zumma_weishi" not in spawns, f"{map_id} 还在复用祖玛卫士"
+
+
+@case
+def test_endgame_gear_is_wearable_within_top_level_band():
+    """终局装备的等级门槛必须够得着，否则"打到 52 级也穿不上"。
+
+    最贵的那几件门槛设在 48/50，正好是赤月/牛魔地图带的起始位。
+    """
+    top_band = max(s["level_range"][1] for s in DATA.maps["maps"].values())
+    for iid in ("chiyue_mojian", "chiyue_mozhang", "chiyue_daojian",
+                "chiyue_zhanjia", "niumo_zhanfu", "niumo_toukui"):
+        req = DATA.items["items"][iid]["level_req"]
+        assert req <= top_band, (iid, req, top_band)
+
+
+@case
+def test_monster_levels_fall_in_their_map_band():
+    """怪的等级要大体落在它刷新的那张图的等级带里。
+
+    两类都要抓：
+    - **高出图的上限** → 低等级图里藏着高级怪，路过即秒；
+    - **远低于图的下限** → 50 级的图刷一群 30 级怪，打了没收益。
+
+    下界留 2 级窗口是因为相邻练级带本来就该交叠（石墓阵 40-44 里
+    刷 38 级的沃玛卫士是刻意保留的过渡）；这条断言抓的是尸王那种
+    整整差 11 级的**真错位**（15 级尸王曾刷在 26-33 的半兽古墓里）。
+    """
+    TRANSITION_WINDOW = 2
+    for map_id, spec in DATA.maps["maps"].items():
+        low, high = spec["level_range"]
+        for spawn in spec.get("spawns", []):
+            mid = spawn["monster"]
+            level = DATA.monsters["monsters"][mid]["level"]
+            assert level <= high, (map_id, mid, level, (low, high))
+            assert level >= low - TRANSITION_WINDOW, (map_id, mid, level, (low, high))
 
 
 def run() -> tuple[int, int]:

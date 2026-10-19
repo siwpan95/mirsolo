@@ -43,19 +43,27 @@ def test_exp_curve_lookup():
     assert exp_to_next(DATA, 9) == 2500
     assert exp_to_next(DATA, 35) == 8_800_000
     assert exp_to_next(DATA, 49) == 200_000_000
-    assert exp_to_next(DATA, 50) == 0, "50 级封顶，不应再有升级需求"
+    # P2 起封顶抬到 52（原版 50 封顶）：50→51 要 2.4 亿、51→52 要 2.8 亿
+    assert exp_to_next(DATA, 50) == 240_000_000
+    assert exp_to_next(DATA, 51) == 280_000_000
+    assert exp_to_next(DATA, 52) == 0, "52 级封顶，不应再有升级需求"
 
 
 @case
 def test_exp_total_matches_table():
     """1→50 逐级相加 = 1,044,796,900（非网页宣称的 10.8185 亿，见文档）。"""
     assert total_exp_span(DATA, 50) == 1_044_796_900
+    # 1→52 = 上面 + 50/51 两级的需求（新增的两档不能破坏旧口径）
+    assert total_exp_span(DATA, 52) == 1_044_796_900 + 240_000_000 + 280_000_000
 
 
 @case
 def test_exp_curve_is_monotonic_after_10():
-    """10 级以后曲线必须单调递增（手录表最容易在这里写错一位数）。"""
-    values = [exp_to_next(DATA, lv) for lv in range(10, 50)]
+    """10 级以后曲线必须单调递增（手录表最容易在这里写错一位数）。
+
+    只查到 51：52 是封顶级（0），不是"写错"，不该被单调性判死。
+    """
+    values = [exp_to_next(DATA, lv) for lv in range(10, 52)]
     for prev, nxt in zip(values, values[1:]):
         assert nxt > prev, f"经验曲线在 {prev} -> {nxt} 处不单调"
 
@@ -94,9 +102,9 @@ def test_add_exp_zero_is_noop():
 @case
 def test_cap_level_drops_overflow():
     """封顶后经验不再累积，丢弃量要能被观测到（避免"经验条一直涨"的假象）。"""
-    prog = Progression(level=50, exp=0)
+    prog = Progression(level=52, exp=0)
     result = add_exp(DATA, prog, 12345)
-    assert prog.level == 50 and prog.exp == 0
+    assert prog.level == 52 and prog.exp == 0
     assert result.overflow_dropped == 12345
 
 

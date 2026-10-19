@@ -162,11 +162,6 @@
           "monster": "banzhanshi",
           "count": 8,
           "respawn_seconds": 60
-        },
-        {
-          "monster": "shiwang",
-          "count": 1,
-          "respawn_seconds": 240
         }
       ],
       "portals": [
@@ -384,14 +379,19 @@
       "safe_zone": false,
       "spawns": [
         {
-          "monster": "zumma_weishi",
+          "monster": "chiyue_mozhu",
           "count": 10,
+          "respawn_seconds": 70
+        },
+        {
+          "monster": "xuejiangshi",
+          "count": 8,
           "respawn_seconds": 80
         },
         {
-          "monster": "emo_gongjianshou",
-          "count": 6,
-          "respawn_seconds": 70
+          "monster": "chiyue_emo",
+          "count": 1,
+          "respawn_seconds": 300
         }
       ],
       "portals": [
@@ -428,17 +428,17 @@
       "safe_zone": false,
       "spawns": [
         {
-          "monster": "zumma_weishi",
+          "monster": "niumo_zhanshi",
+          "count": 10,
+          "respawn_seconds": 75
+        },
+        {
+          "monster": "niumo_fashi",
           "count": 8,
           "respawn_seconds": 80
         },
         {
-          "monster": "heiming_zhanshi",
-          "count": 8,
-          "respawn_seconds": 70
-        },
-        {
-          "monster": "zumma_jiaozhu",
+          "monster": "niumo_wang",
           "count": 1,
           "respawn_seconds": 900
         }
