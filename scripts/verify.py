@@ -714,6 +714,160 @@ def gate_potion_and_sustain(data=None) -> tuple[bool, str]:
                   f"{len(data.drops['drops'])} 个怪都掉药水且药水组一律在末尾；"
                   f"商店一次 {potion.BUY_BUNDLE} 瓶")
 
+def gate_mining_and_ores(data=None) -> tuple[bool, str]:
+    """挖矿：工具与矿石在数据面成立、矿脉表口径一致、经济账落在可玩区间。
+
+    最容易悄悄失效的三条：
+
+    * **经济账**。矿脉表的 ``yield_bp`` 与条目 ``bp`` 都是万分比，两个相乘
+      很容易少算一个 1e4（真发生过：期望值算成 0.0，整张表看着还挺像样的）。
+      这条门禁把"每锄期望收益"真算一遍，顺便钉住"越深的矿越值钱"这个梯度。
+    * **矿石只进不出**。矿石一旦上了货架/进了拍卖行，就等于能用金币直接买到
+      纯度 100 的黑铁矿石，#25 的武器升级成本当天崩盘。
+    * **真的挖得到**。前面几条都是查表，最后一条真站到矿点上挥 200 刻，
+      证明"矿点 → 锄头 → 产出 → 入包"这条链是通的。
+    """
+    if data is None:
+        from mirsolo.data.loader import GameData
+
+        data = GameData.load()
+    from mirsolo.actor.factory import spawn_player
+    from mirsolo.bootstrap import build_session
+    from mirsolo.components import Bag, Position, Progression, Wear
+    from mirsolo.items import mining
+    from mirsolo.items.equipment import equip
+    from mirsolo.items.wear import points_of
+    from mirsolo.presentation.panels import shop_stock
+    from mirsolo.progression.exp import apply_growth
+
+    bad: list[str] = []
+    table = data.items["items"]
+
+    # 1) 矿石：只进不出的资源（不上架、不寄卖、不占槽、没有耐久）
+    ores = {iid: spec for iid, spec in table.items() if spec.get("kind") == "ore"}
+    if len(ores) != 8:
+        bad.append(f"矿石应该正好 8 种（五色 + 黑铁四档），现在 {len(ores)} 种")
+    for item_id, spec in sorted(ores.items()):
+        if spec.get("slot") is not None:
+            bad.append(f"{item_id} 是矿石却占了装备槽（{spec['slot']}）")
+        if spec.get("auction") is not None:
+            bad.append(f"{item_id} 是矿石却能寄卖")
+        if int(spec.get("durability", 0) or 0) != 0:
+            bad.append(f"{item_id} 是矿石却有耐久")
+        if int(spec.get("weight", 0) or 0) <= 0:
+            bad.append(f"{item_id} 没有重量（负重就限速不了挖矿）")
+        if int(spec.get("price", 0) or 0) <= 0:
+            bad.append(f"{item_id} 不值钱（卖不掉就没有挖它的理由）")
+    for item_id in shop_stock(data):
+        if mining.is_ore(data, item_id):
+            bad.append(f"矿石上了货架：{item_id}")
+
+    # 2) 纯度：只长在黑铁矿石上，四档齐全且值域 (0, 100]
+    purities = sorted({int(spec["purity"]) for spec in ores.values()
+                       if spec.get("purity") is not None})
+    if purities != [30, 50, 70, 100]:
+        bad.append(f"黑铁矿石应该正好四档纯度 30/50/70/100，现在是 {purities}")
+    for item_id, spec in sorted(table.items()):
+        if spec.get("kind") == "ore":
+            continue
+        if spec.get("purity") is not None:
+            bad.append(f"{item_id} 不是矿石却写了纯度（纯度只能落在矿石上）")
+
+    # 3) 工具：装备槽里必须有能挖矿的东西，且它真的是一把武器
+    picks = [iid for iid, spec in table.items() if spec.get("tool") in ("pick",)]
+    if not picks:
+        bad.append("没有任何能挖矿的工具（工具是数据面事实，别写死在代码里）")
+    for item_id in sorted(picks):
+        spec = table[item_id]
+        if spec.get("kind") != "equip" or spec.get("slot") != "weapon":
+            bad.append(f"{item_id} 标了 tool 却不是武器（{spec.get('kind')}）")
+        if int(spec.get("durability", 0) or 0) <= 0:
+            bad.append(f"{item_id} 没有耐久（挖矿的磨损就落不了地）")
+
+    # 4) 矿脉表：两条万分比口径 + 梯度
+    veins = data.mines.get("veins") or {}
+    if not veins:
+        bad.append("矿脉表是空的")
+    per_swing: dict[str, float] = {}
+    for vein_id, spec in sorted(veins.items()):
+        yield_bp = int(spec.get("yield_bp", 0) or 0)
+        if not 0 < yield_bp < 10000:
+            bad.append(f"{vein_id} yield_bp={yield_bp} 不在万分比区间内")
+        if int(spec.get("capacity", 0) or 0) <= 0:
+            bad.append(f"{vein_id} 储量必须为正")
+        if int(spec.get("regrow_ticks", 0) or 0) <= 0:
+            bad.append(f"{vein_id} 恢复时间必须为正")
+        entries = spec.get("entries") or []
+        if not entries:
+            bad.append(f"{vein_id} 没有任何产出条目")
+            continue
+        total = sum(int(e.get("bp", 0) or 0) for e in entries)
+        if total != 10000:
+            bad.append(f"{vein_id} 条目权重和是 {total}，不是 10000")
+        for entry in entries:
+            if entry.get("item") not in ores:
+                bad.append(f"{vein_id} 产出 {entry.get('item')} 不是矿石")
+        # 每锄期望收益 = 出矿率 × Σ(条目权重 × 回收价)，两个万分比相乘得 1e8
+        acc = 0
+        for entry in entries:
+            price = int(ores.get(entry.get("item"), {}).get("price", 0) or 0)
+            acc += int(entry.get("bp", 0) or 0) * (price // 3)
+        per_swing[vein_id] = acc * yield_bp / 1e8
+    for vein_id, value in per_swing.items():
+        if not 0 < value < 200:
+            bad.append(f"{vein_id} 每锄期望 {value:.1f} 金（不在 0-200 金的可玩区间）")
+
+    # 5) 矿点：至少一张图有矿点，且引用的矿脉都存在、都不压在传送点上
+    with_mines = 0
+    for map_id, spec in sorted(data.maps["maps"].items()):
+        points = spec.get("mines") or []
+        if not points:
+            continue
+        with_mines += 1
+        portals = {tuple(p["at"]) for p in spec.get("portals", [])}
+        for mine in points:
+            if mine.get("vein") not in veins:
+                bad.append(f"{map_id} 的矿点引用了不存在的矿脉 {mine.get('vein')}")
+            if tuple(mine.get("at", ())) in portals:
+                bad.append(f"{map_id} 的矿点压在传送点上 {mine.get('at')}")
+    if with_mines == 0:
+        bad.append("没有任何地图有矿点（挖矿等于没做）")
+
+    # 6) 真挖一次：站到矿点上挥 200 刻，矿石进包、锄头掉耐久
+    if not bad:
+        target = next(mid for mid, spec in sorted(data.maps["maps"].items())
+                      if spec.get("mines"))
+        point = data.maps["maps"][target]["mines"][0]
+        session = build_session(data=data, seed=1, map_id=target)
+        try:
+            player = spawn_player(session.world, data, class_id="warrior")
+            player.get(Progression).level = 30
+            apply_growth(player, data.classes["classes"]["warrior"])
+            pick_id = sorted(picks)[0]
+            player.get(Bag).add(pick_id, 1)
+            equip(player, data, pick_id)
+            pos = player.get(Position)
+            pos.x, pos.y = float(point["at"][0]), float(point["at"][1])
+            session.world.set_data("mine_toggle", True)
+            for _ in range(200):
+                session.step(1)
+            got = sum(v for k, v in player.get(Bag).items.items()
+                      if mining.is_ore(data, k))
+            if got <= 0:
+                bad.append(f"在 {target} 挖了 200 刻一块矿都没出（矿脉表形同虚设）")
+            if points_of(player.get(Wear), pick_id) <= 0:
+                bad.append("挖了 200 刻锄头一点没磨（磨损没接上）")
+        finally:
+            session.shutdown()
+
+    if bad:
+        return False, "; ".join(bad)
+    ladder = " < ".join(f"{v:.1f}" for v in per_swing.values())
+    return True, (f"{len(ores)} 种矿石（只进不出）+ {len(picks)} 把鹤嘴锄；"
+                  f"{len(veins)} 条矿脉权重和 10000，每锄期望 {ladder} 金；"
+                  f"{with_mines} 张图有矿点且不压传送点；200 刻真挖出矿并磨了锄头")
+
+
 GATES = [
     ("data-integrity", "九张数据表的引用完整性（掉落/刷新/技能职业/攻城可解析）", gate_data_integrity),
     ("data-files", "data/ 下九张表齐全且是合法 JSON", gate_data_files),
@@ -729,6 +883,9 @@ GATES = [
      gate_death_penalty),
     ("potion-and-sustain", "药水：九档齐备、公共冷却在拦、每个怪都掉药、自动喝药常开",
      gate_potion_and_sustain),
+    ("mining-and-ores",
+     "挖矿：工具与矿石成立、矿脉表口径一致、每锄期望落在区间",
+     gate_mining_and_ores),
     ("tests-registered", "run_tests.MODULES ↔ tests/test_*.py 双向一致", gate_tests_registered),
     ("readme-commands", "README 里的 python -m 目标都真实可导入", gate_readme_commands),
     ("readme-tree-real", "README 项目结构里的路径都真实存在", gate_tree_real),
@@ -1024,6 +1181,49 @@ def _selfcheck() -> int:
     else:
         failures += 1
         print(f"  FAIL potion-and-sustain 未拦住阈值为 0（{detail}）")
+
+    # 23) mining-and-ores：把铜矿脉的条目权重和改坏 —— 少算一个 1e4 的经典现场
+    _saved_bp = game.mines["veins"]["vein_copper"]["entries"][0]["bp"]
+    game.mines["veins"]["vein_copper"]["entries"][0]["bp"] = 4500
+    ok, detail = gate_mining_and_ores(game)
+    game.mines["veins"]["vein_copper"]["entries"][0]["bp"] = _saved_bp
+    if not ok and "不是 10000" in detail:
+        print("  ok   mining-and-ores 能拦住权重和不是 10000 的矿脉表")
+    else:
+        failures += 1
+        print(f"  FAIL mining-and-ores 未拦住权重和错误（{detail}）")
+
+    # 24) 把鹤嘴锄的 tool 标记摘掉 —— 数据面上就没有能挖矿的东西了
+    _saved_tool = game.items["items"]["hezuichu"].pop("tool")
+    ok, detail = gate_mining_and_ores(game)
+    game.items["items"]["hezuichu"]["tool"] = _saved_tool
+    if not ok and "没有任何能挖矿的工具" in detail:
+        print("  ok   mining-and-ores 能拦住没有鹤嘴锄（挖矿等于没做）")
+    else:
+        failures += 1
+        print(f"  FAIL mining-and-ores 未拦住工具缺失（{detail}）")
+
+    # 25) 把纯度 100 那档改成 90 —— #25 的武器升级会悄悄吃掉一档收益
+    _saved_purity = game.items["items"]["ore_blackiron_4"]["purity"]
+    game.items["items"]["ore_blackiron_4"]["purity"] = 90
+    ok, detail = gate_mining_and_ores(game)
+    game.items["items"]["ore_blackiron_4"]["purity"] = _saved_purity
+    if not ok and "纯度" in detail:
+        print("  ok   mining-and-ores 能拦住纯度档位被改（四档 30/50/70/100）")
+    else:
+        failures += 1
+        print(f"  FAIL mining-and-ores 未拦住纯度档位错误（{detail}）")
+
+    # 26) 把出矿率写成 0 —— 挖一辈子不出矿，而这张表看着还挺像样的
+    _saved_yield = game.mines["veins"]["vein_copper"]["yield_bp"]
+    game.mines["veins"]["vein_copper"]["yield_bp"] = 0
+    ok, detail = gate_mining_and_ores(game)
+    game.mines["veins"]["vein_copper"]["yield_bp"] = _saved_yield
+    if not ok and "可玩区间" in detail:
+        print("  ok   mining-and-ores 能拦住每锄期望为 0（矿脉表形同虚设）")
+    else:
+        failures += 1
+        print(f"  FAIL mining-and-ores 未拦住出矿率为 0（{detail}）")
 
     print(f"\nselfcheck: {'PASS' if failures == 0 else f'{failures} 条门禁形同虚设'}")
     return 0 if failures == 0 else 1

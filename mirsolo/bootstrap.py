@@ -36,6 +36,7 @@ from mirsolo.actor.systems import (
     MobAttackSystem,
     MobChaseSystem,
     MercenarySystem,
+    MiningSystem,
     MovementSystem,
     PotionSystem,
     RegenSystem,
@@ -171,6 +172,7 @@ def build_session(
     world.add_system(AuctionSystem(seed=seed))
     world.add_system(MercenarySystem())
     world.add_system(PotionSystem(data=game_data))
+    world.add_system(MiningSystem(data=game_data))
     world.add_system(CooldownSystem())
     world.add_system(StatusSystem(ctx))
     world.add_system(MovementSystem())

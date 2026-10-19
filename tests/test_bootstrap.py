@@ -28,11 +28,12 @@ def test_session_has_core_services():
         assert session.world is not None and session.bus is not None
         # 用**名字集合**而不是数量断言：少装一个系统时能直接看出少的是哪个
         expected = {
-            "TickSystem", "RegenSystem", "PotionSystem", "CooldownSystem",
+            "TickSystem", "RegenSystem", "CooldownSystem",
             "MovementSystem",
             "SkillSystem", "StatusSystem", "MobChaseSystem", "AiTargetSystem",
             "RingEffectSystem", "MobAttackSystem", "AttackSystem",
             "AuctionSystem", "MercenarySystem",
+            "PotionSystem", "MiningSystem",
             "DeathRewardSystem", "CodexSystem", "DeathPenaltySystem",
             "RespawnSystem", "SiegeSystem", "PortalSystem",
         }
@@ -53,6 +54,10 @@ def test_session_has_core_services():
         # 特戒结隐要在出刀之前读到"本 tick 有没有出手"，又必须在 AI 走位之后
         # 才算得准——夹在两者之间，挪到任一侧都会在重载测试里变红
         assert order.index("AiTargetSystem") < order.index("RingEffectSystem")
+        # 挖矿夹在喝药与冷却递减之间；更关键的是在移动**之前**——
+        # 出一锄的那一 tick 要把移动意图清零，人站不住就挥不下去
+        assert order.index("PotionSystem") < order.index("MiningSystem") < order.index("CooldownSystem")
+        assert order.index("MiningSystem") < order.index("MovementSystem")
         # 拍卖行撮合在战斗之前跑完（只动金币与挂单，不碰战斗状态）
         assert order.index("RegenSystem") < order.index("AuctionSystem")
         assert order.index("AuctionSystem") < order.index("AttackSystem")

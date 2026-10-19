@@ -41,9 +41,16 @@ CLASSES = ("warrior", "mage", "taoist")
 #: 数据表若给别的槽写 ``luck``，``scripts/verify.py`` 的 ``luck-sources`` 门禁会红。
 LUCK_SLOTS = ("weapon", "necklace")
 
-#: 物品大类：装备 / 技能书 / 消耗品（消耗品自 P3-S3 药水批次起）。
-#: 消耗品的回复口径写在各自的 ``consume`` 段里，loader 只查键在与值域。
-ITEM_KINDS = frozenset({"equip", "book", "consumable"})
+#: 物品大类：装备 / 技能书 / 消耗品 / 矿石（消耗品自 P3-S3、矿石自 P3-S4 起）。
+#: 消耗品的回复口径写在各自的 ``consume`` 段里、矿石的产出写在 ``mines.json`` 里，
+#: loader 只查键在与值域，不替规则层做任何推断。
+ITEM_KINDS = frozenset({"equip", "book", "consumable", "ore"})
+
+#: 工具类型全集（P3-S4 挖矿）。工具是"拿在手上才做得了某件事"的装备，
+#: 与 ``ring_effect`` 同构：标记写在物品上，代码里不写"如果是鹤嘴锄就……"。
+#: 目前只有鹤嘴锄一种，且它占 **weapon 槽**——挖矿时手上必须握着它，
+#: 所以挖矿的代价就是"这一刻你的攻击力只有 1-3"，取舍感由此而来。
+TOOL_KINDS = frozenset({"pick"})
 
 #: 药水效果全集（数据面事实的唯一定义处，``mirsolo/items/potion.py`` 从这里导入）：
 #: hp = 只回血 / mp = 只回蓝 / both = 红蓝都回（太阳水）。
@@ -106,6 +113,7 @@ class GameData:
     maps: dict
     sieges: dict = field(default_factory=dict)
     mercenaries: dict = field(default_factory=dict)
+    mines: dict = field(default_factory=dict)
     data_dir: Path = field(default_factory=data_dir_default)
     errors: list[str] = field(default_factory=list)
 
@@ -113,7 +121,7 @@ class GameData:
 
     @classmethod
     def load(cls, data_dir: str | Path | None = None) -> "GameData":
-        """从目录加载七张表（缺一张直接抛 FileNotFoundError）。"""
+        """从目录加载十张表（缺一张直接抛 FileNotFoundError）。"""
         base = Path(data_dir) if data_dir is not None else data_dir_default()
         game = cls(
             exp=_read_json(base / "exp.json"),
@@ -125,6 +133,7 @@ class GameData:
             maps=_read_json(base / "maps.json"),
             sieges=_read_json(base / "sieges.json"),
             mercenaries=_read_json(base / "mercenaries.json"),
+            mines=_read_json(base / "mines.json"),
             data_dir=base,
         )
         game.errors = game.validate() + game.cross_check()
@@ -164,6 +173,9 @@ class GameData:
 
     def merc(self, merc_id: str) -> dict:
         return self.mercenaries["mercenaries"][merc_id]
+
+    def vein(self, vein_id: str) -> dict:
+        return self.mines["veins"][vein_id]
 
     # ── 校验：结构层 ────────────────────────────────
 
@@ -279,6 +291,36 @@ class GameData:
                             f"items.json[{iid}]: consume.cooldown_ticks 必须为正整数")
                 if spec.get("slot") is not None:
                     errs.append(f"items.json[{iid}]: 消耗品不应有槽位 {spec.get('slot')!r}")
+            if kind == "ore":
+                # 矿石是挖出来的原料：有槽位会被 equip 收进候选里，
+                # 能寄卖则会把"底价高于回收价"那条比值拉歪（它是量产物）
+                if spec.get("slot") is not None:
+                    errs.append(f"items.json[{iid}]: 矿石不应有槽位 {spec.get('slot')!r}")
+                if spec.get("auction") is not None:
+                    errs.append(f"items.json[{iid}]: 矿石不该能寄卖（只该进商店回收）")
+                if int(spec.get("durability", -1)) != 0:
+                    errs.append(f"items.json[{iid}]: 矿石没有耐久，durability 应为 0")
+                if int(spec.get("weight", 0)) <= 0:
+                    errs.append(f"items.json[{iid}]: 矿石必须有重量（否则能无限背）")
+            # 纯度（P3-S4）：只能写在矿石上。它是 #25 升级武器的原料口径，
+            # 值域 0-100 与"纯度 30/50/70/100 四个档位"是同一件事的两面
+            purity = spec.get("purity")
+            if purity is not None:
+                if kind != "ore":
+                    errs.append(f"items.json[{iid}]: purity 只能写在矿石上（当前 {kind}）")
+                elif not isinstance(purity, int) or isinstance(purity, bool) \
+                        or not 0 < purity <= 100:
+                    errs.append(f"items.json[{iid}]: purity 必须是 (0, 100] 的整数")
+            # 工具（P3-S4）：标记只能落在武器上——"拿在手上"这个语义
+            # 只有 weapon 槽表达得了，挂在戒指上就等于"戴着就能挖"
+            tool = spec.get("tool")
+            if tool is not None:
+                if tool not in TOOL_KINDS:
+                    errs.append(f"items.json[{iid}]: 未知 tool {tool!r}")
+                elif kind != "equip" or spec.get("slot") != "weapon":
+                    errs.append(
+                        f"items.json[{iid}]: 工具只能写在武器上（当前 {kind}/"
+                        f"{spec.get('slot')!r}）")
             for key in ("name", "weight", "durability", "level_req"):
                 if key not in spec:
                     errs.append(f"items.json[{iid}]: 缺字段 {key}")
@@ -325,6 +367,24 @@ class GameData:
                     errs.append(f"maps.json[{map_id}]: 刷新 {spawn.get('monster')!r} 数量非正")
                 if int(spawn.get("respawn_seconds", 0)) <= 0:
                     errs.append(f"maps.json[{map_id}]: 刷新 {spawn.get('monster')!r} 间隔非正")
+            # 矿点（P3-S4）：坐标在界内 + 不压传送点 + 矿脉存在 + 不重叠。
+            # "不压传送点"这条不是洁癖：站在传送点上挖矿，PortalSystem 会在
+            # 你刚站稳的那一 tick 把人换走，是个"站得住但留不住"的坑。
+            seen_mines: set[tuple[int, int]] = set()
+            for mine in spec.get("mines", []):
+                mx, my = mine.get("at", (0, 0))
+                if not (0 <= mx < width and 0 <= my < height):
+                    errs.append(f"maps.json[{map_id}]: 矿点 ({mx}, {my}) 越界，"
+                                f"地图尺寸 {width}x{height}")
+                if (mx, my) in seen_mines:
+                    errs.append(f"maps.json[{map_id}]: 矿点 ({mx}, {my}) 重复")
+                seen_mines.add((mx, my))
+                if mine.get("vein") not in self.mines.get("veins", {}):
+                    errs.append(f"maps.json[{map_id}]: 矿脉 {mine.get('vein')!r} 不存在")
+                for portal in spec.get("portals", []):
+                    if tuple(portal.get("at", (0, 0))) == (mx, my):
+                        errs.append(f"maps.json[{map_id}]: 矿点 ({mx}, {my}) 压在传送点 "
+                                    f"{portal.get('name')!r} 上")
 
         # 攻城战役：结构层（波次/目标/坐标在图内）+ 奖励可解析
         for siege_id, spec in self.sieges.get("sieges", {}).items():
@@ -395,6 +455,35 @@ class GameData:
                     errs.append(f"mercenaries.json[{merc_id}]: {key} 必须为正")
             if len(spec.get("dc", ())) != 2 or len(spec.get("ac", ())) != 2:
                 errs.append(f"mercenaries.json[{merc_id}]: dc/ac 必须是 (下限, 上限)")
+
+        # 矿脉（P3-S4）：产出表**一律万分比**（与 drops 的条目权重同尺度）。
+        # 两套尺度（概率万分比 / 倍率千分比）在 P2 混过一次、代价是 10 倍误差，
+        # 所以这里连名字都带 ``bp`` 后缀，条目权重和必须是 10000。
+        for vid, spec in self.mines.get("veins", {}).items():
+            for key in ("name", "yield_bp", "capacity", "regrow_ticks", "entries"):
+                if key not in spec:
+                    errs.append(f"mines.json[{vid}]: 缺字段 {key}")
+            yield_bp = spec.get("yield_bp")
+            if not isinstance(yield_bp, int) or isinstance(yield_bp, bool) \
+                    or not 0 < yield_bp <= 10000:
+                errs.append(f"mines.json[{vid}]: yield_bp 必须是 (0, 10000] 的万分比")
+            for key in ("capacity", "regrow_ticks"):
+                if int(spec.get(key, 0)) <= 0:
+                    errs.append(f"mines.json[{vid}]: {key} 必须为正")
+            entries = spec.get("entries") or []
+            if not entries:
+                errs.append(f"mines.json[{vid}]: 没有任何产出条目")
+            total = 0
+            for entry in entries:
+                if entry.get("item") not in self.items["items"]:
+                    errs.append(f"mines.json[{vid}]: 矿石 {entry.get('item')!r} 不在物品表")
+                bp = entry.get("bp")
+                if not isinstance(bp, int) or isinstance(bp, bool) or bp <= 0:
+                    errs.append(
+                        f"mines.json[{vid}]: 条目 {entry.get('item')!r} 的 bp 必须为正整数")
+                total += int(bp or 0)
+            if entries and total != 10000:
+                errs.append(f"mines.json[{vid}]: 条目权重和为 {total}，应为 10000")
 
         return errs
 

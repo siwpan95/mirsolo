@@ -20,9 +20,15 @@
         # 验收：倒地状态（按 R 原地复活 / 等 3 秒自动回城）
     python -m mirsolo.cli.play --level 30 --gear --gold 5000 --potions --hurt \
         --shot x.png    # 验收：药水与续航（残血 + 一背包药，Q/E 手动、自动兜底）
+    python -m mirsolo.cli.play --map biqi_mine_1 --level 30 --gear --mine \
+        --shot x.png    # 验收：挖矿（人已站在矿点上，手握鹤嘴锄，F 开工/收工）
+    python -m mirsolo.cli.play --map biqi_mine_1 --level 30 --gear --wear 0 \
+        --ore --panel shop --gold 5000 --shot x.png
+        # 验收：卖矿（商店页底部左右两行：「修理全部」+「卖掉全部矿石」）
 
 按键：WASD / 方向键移动，空格攻击最近的相邻怪，1-5 施放技能，滚轮缩放，
 Q 喝红药 / E 喝蓝药（血/蓝低于阈值时系统也会自己喝，不按键也行），
+站到矿点上按 F 开工挖矿（再按一次收工，挪一步也会自动收工），
 C 角色 / M 佣兵 / J 图鉴 / N 拍卖行 / B 商店 / V 仓库（点行操作），
 ESC 关面板 / 再按退出。走上传送点自动换图。
 
@@ -82,6 +88,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="验收用：把血/蓝打到自动阈值以下（看自动喝药启动）")
     parser.add_argument("--potions", action="store_true",
                         help="验收用：开窗即在商店补一批药水（走 resupply，需 --gold）")
+    parser.add_argument("--mine", action="store_true",
+                        help="验收用：送到本图第一个矿点、手握鹤嘴锄并按下 F")
+    parser.add_argument("--ore", action="store_true",
+                        help="验收用：每种矿石塞一块进背包（看商店页的卖矿行）")
     parser.add_argument("--siege", default=None, metavar="ID",
                         help="验收用：开窗即开战（如 sabak），会按战役自己的 map 换图")
     args = parser.parse_args(argv)
@@ -96,7 +106,8 @@ def main(argv: list[str] | None = None) -> int:
                panel=args.panel, siege=args.siege, gold=args.gold,
                mercs=tuple(args.merc), codex_kills=args.codex, bag=args.bag,
                wear_left=args.wear, dead=args.die,
-               hurt=args.hurt, potions=args.potions)
+               hurt=args.hurt, potions=args.potions,
+               mine=args.mine, ore=args.ore)
     except Exception as exc:  # noqa: BLE001 - 开窗失败要给可执行的提示，而不是堆栈
         print(f"[FAIL] 无法启动窗口: {type(exc).__name__}: {exc}", file=sys.stderr)
         print("提示：无显示器/无 GL 时请用 `python -m mirsolo.cli.smoke` 做逻辑验收。",

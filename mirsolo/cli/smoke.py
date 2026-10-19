@@ -23,6 +23,7 @@ from mirsolo.components import (
     Bag,
     DeathLedger,
     Identity,
+    Mining,
     Position,
     PotionState,
     Progression,
@@ -30,6 +31,8 @@ from mirsolo.components import (
     Wallet,
 )
 from mirsolo.data.loader import GameData
+from mirsolo.economy.shop import ore_value
+from mirsolo.items import mining
 
 
 MELEE_RANGE = 1  # 近战接触距离（切比雪夫网格距离）
@@ -108,6 +111,7 @@ def run_simulation(*, ticks: int, seed: int, map_id: str, player_class: str) -> 
     potions_left = {k: v for k, v in sorted(bag.items.items())
                     if data.items["items"].get(k, {}).get("kind") == "consumable"}
     pstate = player.get(PotionState)
+    mstate = player.get(Mining)
     summary = {
         "ok": True,
         "seed": seed,
@@ -131,6 +135,12 @@ def run_simulation(*, ticks: int, seed: int, map_id: str, player_class: str) -> 
         "kill_counts": dict(sorted(session.kill_counts().items())),
         "potions_left": potions_left,
         "potion_last": pstate.last if pstate is not None else "",
+        # 矿石：冒烟里没人按 F，这一栏有数只能说明自动挖矿漏出来了（不该发生）
+        "ores_left": {k: v for k, v in sorted(bag.items.items())
+                      if data.items["items"].get(k, {}).get("kind") == "ore"},
+        "ore_weight": mining.carried_ore_weight(player, data),
+        "ore_value": ore_value(data, player),
+        "mining_active": bool(mstate.active) if mstate is not None else False,
     }
     session.shutdown()
     return summary
@@ -170,6 +180,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"药水：背包剩 {sum(summary['potions_left'].values())} 瓶"
               f"（{summary['potions_left'] or '无'}）"
               f"  最后喝过 {summary['potion_last'] or '没喝过'}")
+        # 挖矿那一行**没有就不出现**：待在城里也挂一行"没挖矿"是噪音
+        if summary["ores_left"]:
+            print(f"矿石：{sum(summary['ores_left'].values())} 块"
+                  f"（{summary['ores_left']}）  重 {summary['ore_weight']}"
+                  f"  可卖 {summary['ore_value']} 金"
+                  f"{'  （挖矿中）' if summary['mining_active'] else ''}")
 
     if summary["kills"] == 0:
         print("[FAIL] 推演期间无任何击杀——战斗链路可能断了", file=sys.stderr)

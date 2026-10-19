@@ -15,7 +15,7 @@ from allin_engine import Entity
 
 from mirsolo.components import Bag, Body, Loadout, Vitals, Warehouse, Wallet, Wear
 from mirsolo.data.loader import GameData
-from mirsolo.items import potion, wear
+from mirsolo.items import mining, potion, wear
 from mirsolo.items.equipment import recompute
 
 #: 回收价 = 买入价 // 该系数（原版卖掉装备大约只值三分之一）
@@ -107,6 +107,48 @@ def sell(entity: Entity, data: GameData, item_id: str, count: int = 1) -> dict:
     bag.remove(item_id, count)
     wallet.gold += income
     return {"item": item_id, "count": count, "earned": income, "gold": wallet.gold}
+
+
+def ore_value(data: GameData, entity: Entity) -> int:
+    """背包里那些矿石**现在**能卖多少金（面板用它写按钮上的数）。
+
+    与 ``sell_ores`` 共用 ``is_ore`` + ``sell_price`` 这两个口径，
+    所以按钮上写的数和点下去真正进账的数不可能对不上。
+    """
+    bag = entity.get(Bag)
+    if bag is None:
+        return 0
+    total = 0
+    for item_id, count in bag.items.items():
+        if int(count) > 0 and mining.is_ore(data, item_id):
+            total += sell_price(data, item_id) * int(count)
+    return total
+
+
+def sell_ores(entity: Entity, data: GameData) -> dict:
+    """一次性卖掉背包里的**全部矿石**（P3-S4）。
+
+    挖一趟回来手上往往是五六种矿石各一堆；一种一种点过去的点击量，
+    足以让人懒得再去挖——而挖矿的收益本来就不比打怪，再收一道操作税就不划算了。
+
+    与 ``repair_all`` 同一条纪律：**整笔结算**。包里没有矿石就直接报错
+    （面板据此把这行藏起来），绝不做"先卖掉一部分"。
+    """
+    bag = entity.get(Bag)
+    wallet = entity.get(Wallet)
+    if bag is None or wallet is None:
+        raise TradeError("missing_components", "缺少 Bag/Wallet 组件")
+    rows = [(item_id, int(count)) for item_id, count in sorted(bag.items.items())
+            if int(count) > 0 and mining.is_ore(data, item_id)]
+    if not rows:
+        raise TradeError("nothing_to_sell", "背包里没有矿石")
+    income = 0
+    for item_id, count in rows:
+        bag.remove(item_id, count)
+        income += sell_price(data, item_id) * count
+    wallet.gold += income
+    return {"items": [item_id for item_id, _ in rows], "earned": income,
+            "gold": wallet.gold}
 
 
 def repair(entity: Entity, data: GameData, item_id: str) -> dict:

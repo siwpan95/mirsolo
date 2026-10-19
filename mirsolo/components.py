@@ -313,6 +313,26 @@ class Downed(Component):
 
 
 @dataclass
+class Mining(Component):
+    """挖矿状态（P3-S4）。
+
+    ``active`` 是"还想不想挖"，``next_tick`` 是"下一锄什么时候落下去"——
+    两个分开是因为按一次 ``F`` 只是**开工**，真正出一锄要等到节奏点，
+    否则连按 F 就能在一 tick 里把锄头挥烂。
+
+    ``vein`` 记的是**图内第几个矿点**（下标）。换图时整个状态由
+    ``MiningSystem`` 复位：下标在新图上指向的是另一个地方，留着就是脏数据。
+
+    ``last`` 只给表现层用（上一锄挖到什么），不参与任何判定。
+    """
+
+    active: bool = False
+    vein: int = -1
+    next_tick: int = 0
+    last: str = ""
+
+
+@dataclass
 class PotionState(Component):
     """喝药状态：公共冷却的**到期刻**（P3-S3）。
 

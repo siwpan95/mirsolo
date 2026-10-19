@@ -14,17 +14,18 @@
 - **确定性**：纯整数随机流，同种子同结局；掉落与击杀序号绑定，读档重打不刷装
 - **零 GL 可测**：逻辑层无窗口单测，headless 冒烟 3 秒跑完 2000 秒游戏时间
 
-## 现状：P2 终局内容已完，P3 单机化改造进行中（药水与续航已完）
+## 现状：P2 终局内容已完，P3 单机化改造进行中（挖矿已完）
 
 已完成：战斗数学（物 / 魔 / 道三分野）、经验曲线与成长、组权重掉落、
 三职业 16 技、等距斜俯视 3D 表现层（角色 / 佣兵 / 图鉴 / 拍卖行 / 商店 / 仓库六个面板）、
 沙巴克攻城战役、赤月与牛魔打宝图、幸运 9、特戒六枚、拍卖行、佣兵与图鉴、
 装备持久度与修理、死亡惩罚（倒地 → 回城 / 原地付费复活）、
 药水与续航（九档药水 / 商店捆买 / 怪物掉落 / 自动喝药）、
-ECS 装配（20 个系统：Tick / 回血 / 拍卖 / 佣兵到期 / 喝药 / 冷却 / 状态 / 移动 / 技能 /
+挖矿（鹤嘴锄占武器槽 / 五色矿石 + 黑铁四档纯度 / F 键十刻一锄 / 矿点枯竭与再生 / 商店整笔卖矿）、
+ECS 装配（21 个系统：Tick / 回血 / 拍卖 / 佣兵到期 / 喝药 / 挖矿 / 冷却 / 状态 / 移动 / 技能 /
 追击 / 选敌 / 特戒 / 出刀 / 结算 / 死亡奖励 / 图鉴 / 死亡惩罚 / 刷怪 / 攻城 / 传送）。
 
-未完成（P3 剩余欠账）：挖矿、武器升级与祝福油、持久化存档
+未完成（P3 剩余欠账）：武器升级与祝福油、持久化存档
 （确定性已就位，读写层未做）。
 
 ## 快速开始
@@ -54,7 +55,7 @@ mirsolo/
       resolver.py       结算器（唯一允许改血的地方，发事件）
     actor/
       factory.py        实体工厂（按数据表造人/造怪/造佣兵，怪物与佣兵共用一条构造路径）
-      systems.py        16 个 ECS 系统（回血→拍卖→佣兵到期→喝药→冷却→状态→移动→
+      systems.py        17 个 ECS 系统（回血→拍卖→佣兵到期→喝药→挖矿→冷却→状态→移动→
                         追击→选敌→特戒→出刀→结算→死亡奖励→图鉴→死亡惩罚→刷怪）
       mercenary.py      佣兵规则层（等级门槛 / 名额上限 / 扣钱 / 到期倒计时）
       codex.py          图鉴规则层（击杀记账 / 首杀奖励 / 掉落出处 / 面板数据源）
@@ -66,6 +67,7 @@ mirsolo/
     items/
       drops.py          组权重掉落（seed + kill_index 决定，防 save-scum）
       potion.py         药水规则层（九档选药 / 公共冷却 / 自动阈值 / 商店捆买）
+      mining.py         挖矿规则层（矿点判定 / 十刻一锄 / 必磨一点 / 矿脉权重 / 枯竭与再生）
       wear.py           装备磨损与修理（命中记账 / 磨穿失效 / 修理费 < 买新价）
       equipment.py      穿脱装备 + 属性重算（裸身基准 + 装备加成，每次全量重算）
       rings.py          特戒六枚规则层（麻痹/护身/复活/传送/隐身/火焰，纯函数 + 记账）
@@ -79,11 +81,11 @@ mirsolo/
       campaign.py       沙巴克攻城战役（三波目标/准入锁定/增援/胜负结算，SiegeSystem）
     presentation/
       iso_camera.py     真等距相机（35.264° 俯角 / 正交投影 / 跟随缩放）
-      scene.py          实例收集与深度排序（纯数据，无 GL）
-      hud.py            HP/MP/EXP 条、状态文本与攻城状态条（纯数据，无 GL）
+      scene.py          实例收集与深度排序 + 矿点标记（纯数据，无 GL）
+      hud.py            HP/MP/EXP 条、状态文本、攻城状态条与挖矿进度（纯数据，无 GL）
       panels.py         六个面板的布局与命中测试（角色/佣兵/图鉴/拍卖行/商店/仓库，纯数据无 GL）
       renderer.py       pyglet 2.1 ShaderProgram 渲染（地面网格 1 draw / 实例 1 draw）
-      app.py            窗口、输入（WASD/空格/T 特戒/Q 红药/E 蓝药/R 复活/C/M/J/N/B/V 面板/滚轮/鼠标点面板）与固定步长循环
+      app.py            窗口、输入（WASD/空格/T 特戒/Q 红药/E 蓝药/R 复活/F 挖矿/C/M/J/N/B/V 面板/滚轮/鼠标点面板）与固定步长循环
     data/
       loader.py         九张表加载 + 结构校验 + 引用校验
     cli/
@@ -95,21 +97,23 @@ mirsolo/
     skills.json         技能表（三职业 16 技 + 技能书；P1-S2 起全部 kind 有行为）
     monsters.json       怪物表（23 种，AI 三档：passive/aggressive/elite）
     items.json          装备 22 件（含 P2 赤月/牛魔终局 6 件 + 幸运项链 2 条 + 特戒 6 枚）
-                        + 技能书 16 本 + 药水 9 件（共 47 件）
+                        + 技能书 16 本 + 药水 9 件 + 矿石 8 件 + 工具 1 把（共 56 件）
     drops.json          掉落表（组权重 + gold 区间；每个怪末尾一组药水）
-    maps.json           地图与刷新/传送表（11 张，等级带 1-52 连续，含战役图 sabak）
+    mines.json          矿脉表（四种矿脉：产出条目万分比权重 + 每锄产出率）
+    maps.json           地图与刷新/传送表（11 张，等级带 1-52 连续，含战役图 sabak；
+                        三张图共 8 个矿点）
     sieges.json         攻城战役表（波次/目标/守军/增援/奖励）
     mercenaries.json    佣兵表（雇用兵/虎卫/魔法侍卫：等级门槛、价格、时长、名额）
   docs/
     数据口径.md          逐表来源、近似标记与已知差异
     借鉴记账.md          借鉴对象 / 许可证 / 范围 / 禁区
-  scripts/verify.py     15 条机械门禁（含 --selfcheck 注入破坏自检）
+  scripts/verify.py     16 条机械门禁（含 --selfcheck 注入破坏自检）
   scripts/extend_p2_luck.py  幂等写幸运数据（终局武器 luck 7 + 两条幸运项链）
   scripts/extend_p2_rings.py 幂等写特戒数据（六枚戒指 + 六只 BOSS 的专属掉落组）
   scripts/extend_p2_auction.py 幂等写寄卖参数（38 件可交易物品的 demand/floor）
   scripts/extend_p2_mercs.py   幂等写佣兵表（三种佣兵 + 等级门槛与名额）
-  scripts/inject_check.py  注入验证：74 处注入，把生产代码改坏，确认回归真的会红
-  tests/run_tests.py    测试聚合 runner（22 模块）
+  scripts/inject_check.py  注入验证：88 处注入，把生产代码改坏，确认回归真的会红
+  tests/run_tests.py    测试聚合 runner（23 模块）
 ```
 
 ## 设计要点
@@ -209,20 +213,49 @@ mirsolo/
 **必须追加在 `groups` 末尾**：随机流名带组下标，插到前面会把既有装备组的掉落结果
 全部洗牌（详见 `docs/数据口径.md` 的《药水与续航》一节）。
 
+**13. 挖矿的代价是"武器槽被占"，不是一条补丁规则。** 鹤嘴锄就是一把武器
+（攻击 1-3、占 `weapon` 槽、有耐久），所以"挖矿时攻击力减半"这种补丁不需要写——
+这一刻你拿的是锄头，本来就打不动怪。矿石是**只进不出**的资源：不可装备
+（无槽位）、不可寄卖（拍卖行的可交易集合里没有它）、耐久为 0（不是装备，磨不了），
+但**有重量也有价**——重量让它挤占背包（挖到背不动为止），价格让它能在商店整笔卖掉。
+矿石**不上架**：货架能卖矿石就等于能用金币直接买到纯度 100 的黑铁矿石，
+#25 的升级成本当天崩盘。纯度是韩版传奇的特色，而纯度必须**长在 item_id 上**
+（`ore_blackiron_1..4`，纯度 30 / 50 / 70 / 100）——背包是堆叠的、没有实物实例 id，
+"这一堆黑铁是 70 纯度"这件事只能靠 id 区分（与 `wear` 按 item_id 记账同一条纪律）。
+
+**14. 挖矿的两条随机纪律：矿点下标进流名，累计锄数绝不随再生清零。** 流名
+`mine:{map_id}:{vein_index}@{swing_index}`，与战斗 / 掉落 / 磨损**全部**分开，
+所以站着挖矿不会挪动任何一场架的读数（有测试逐位钉住）。`swing_index` 用的是
+**累计**锄数 `total` 而不是"本轮第几锄"：矿脉枯竭后按 `regrow_ticks` 再生，
+届时储量回到满、但 `total` 继续往上走——若随再生清零，流名就会重用，
+长回来后前几锄必然挖出和上一轮一模一样的矿。同理，每锄**必磨 1 点**、
+不掷点：生产成本不是战斗损耗，"锄头还能用多久"必须是可预期的，
+而且不掷点就不消耗随机流，从原理上堵死了挪动战斗磨损读数的可能。
+先磨损、后产出，且"挖到了但放不进包"按**没挖到**处理（不回音、不消耗储量之外的东西）——
+否则玩家会在背不动的时候白掉耐久。挖矿的节奏是十刻一锄，`MiningSystem`
+priority 9，夹在喝药（8）与冷却递减**之间**、且在移动（10）**之前**：
+出一锄的那一 tick 要把移动意图清零，人站不住就挥不下去。
+按 `F` 却脚下没矿点必须**回音**（"脚下没有矿点"），不然玩家只会以为键坏了
+（详见 `docs/数据口径.md` 的《挖矿（P3-S4）》一节）。
+
 ## 测试与验收
 
 ```bat
-python -m tests.run_tests              :: 22 个模块，345 项无窗口单测
+python -m tests.run_tests              :: 23 个模块，364 项无窗口单测
 python -m mirsolo.cli.smoke --ticks 3000   :: headless 冒烟（含确定性复跑）
 python -m mirsolo.cli.play --level 50 --gear --siege sabak --shot shots\siege.png
                                        :: 攻城验收：开窗即开战，顶部战役状态条
 python -m mirsolo.cli.play --level 30 --gear --gold 20000 --potions --hurt --shot shots\p3s3_potion.png
                                        :: 药水验收：商店补一批药 + 残血看自动喝药启动
-python scripts\verify.py               :: 15 条机械门禁（<1 秒）
+python -m mirsolo.cli.play --level 30 --mine --shot shots\p3s4_mine.png
+                                       :: 挖矿验收：站到矿点上已开工，HUD 有"挖矿中"一行
+python -m mirsolo.cli.play --level 30 --mine --ore --panel shop --shot shots\p3s4_shop.png
+                                       :: 卖矿验收：商店页底部"卖掉全部矿石"按得动
+python scripts\verify.py               :: 16 条机械门禁（<1 秒）
 python scripts\verify.py --list        :: 只看门禁清单
 python scripts\verify.py --verbose     :: 每条门禁的证据
 python scripts\verify.py --selfcheck   :: 注入破坏，证明门禁拦得住
-python scripts\inject_check.py         :: 74 处注入，全部要能把测试打红
+python scripts\inject_check.py         :: 88 处注入，全部要能把测试打红
 ```
 
 门禁清单：
@@ -243,6 +276,7 @@ python scripts\inject_check.py         :: 74 处注入，全部要能把测试�
 | `wear-and-repair` | 每件装备 `durability` 为正、修满 < 买入价、期望寿命落在 100-5000 次命中 |
 | `death-penalty` | 倒地有自动回城兜底、原地复活有代价、死一次掉的量**不足以掉级** |
 | `potion-and-sustain` | 九档药水齐备（hp/mp/both）、公共冷却在拦、每个怪都掉药且药水组一律在末尾、自动喝药真在生效 |
+| `mining-and-ores` | 工具与矿石成立、纯度只长在矿石上、矿脉表口径一致、每锄期望收益落在区间、矿点不压传送点、真站上去挥 200 刻有产出 |
 | `package-imports` | `mirsolo/` 下每个模块都能 import |
 
 ## 路线图
@@ -255,7 +289,7 @@ python scripts\inject_check.py         :: 74 处注入，全部要能把测试�
 | P3-S1 | 装备持久度与修理 | ✅ |
 | P3-S2 | 死亡惩罚（倒地 → 回城 / 原地付费复活） | ✅ |
 | P3-S3 | 药水与续航（九档药水 / 商店捆买 / 怪物掉落 / 自动喝药） | ✅ |
-| P3-S4 | 挖矿 | ⬜ 未开工 |
+| P3-S4 | 挖矿（鹤嘴锄占武器槽 / 五色矿石 + 黑铁四档纯度 / F 键十刻一锄 / 矿点枯竭与再生 / 商店整笔卖矿） | ✅ |
 | P3-S5 | 武器升级与祝福油 | ⬜ 未开工 |
 | P3-S6 | 持久化存档（读写层） | ⬜ 未开工 |
 

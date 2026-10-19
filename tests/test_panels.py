@@ -32,6 +32,14 @@ CASES = []
 DATA = GameData.load()
 ITEMS = DATA.items["items"]
 
+#: 货架上架的三种 kind + 上架件数（56 件里 48 件；矿石不在此列）
+STOCK_KINDS = ("equip", "book", "consumable")
+STOCK_COUNT = 48
+#: 全部物品件数（改表必须改这里）
+ITEM_COUNT = 56
+#: 矿石件数：五色 + 黑铁四档纯度
+ORE_COUNT = 8
+
 
 def case(fn):
     CASES.append(fn)
@@ -205,9 +213,13 @@ def test_shop_stock_covers_all_equipment_and_books():
     """
     stock = shop_stock(DATA)
     kinds = [ITEMS[i]["kind"] for i in stock]
-    assert len(stock) == len(ITEMS), (len(stock), len(ITEMS))
-    for kind in ("equip", "book", "consumable"):
+    # 数量写死（56 件物品里 48 件上架），改表必须改这三个数
+    assert len(stock) == STOCK_COUNT, (len(stock), STOCK_COUNT)
+    for kind in STOCK_KINDS:
         assert kinds.count(kind) == sum(1 for i in ITEMS.values() if i["kind"] == kind), kind
+    # 矿石**不上架**：矿石是"只进不出"的资源，货架能卖就等于
+    # 能用金币直接买到纯度 100 的黑铁矿石，#25 的升级成本当天崩盘
+    assert "ore" not in kinds, sorted(set(kinds))
     prices = [buy_price(DATA, i) for i in stock]
     assert prices == sorted(prices), "货架应按价格升序，玩家一眼看到买得起的"
 

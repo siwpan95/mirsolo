@@ -37,6 +37,7 @@ from mirsolo.components import (
     AuctionBook,
     Attributes,
     Bag,
+    Body,
     Codex,
     Cooldowns,
     DeathLedger,
@@ -45,6 +46,7 @@ from mirsolo.components import (
     Invisible,
     Loadout,
     Mercenary,
+    Mining,
     Paralysis,
     Poison,
     Position,
@@ -59,10 +61,11 @@ from mirsolo.components import (
 from mirsolo.actor import codex, mercenary, penalty
 from mirsolo.determinism import Rng
 from mirsolo.economy import auction
-from mirsolo.items import potion, rings
+from mirsolo.items import mining, potion, rings
 from mirsolo.items import wear
 from mirsolo.items.drops import roll_drops
 from mirsolo.items.equipment import recompute
+from mirsolo.economy.shop import carried_weight
 from mirsolo.progression.exp import add_exp, apply_growth
 
 KEY_TICK = "tick"
@@ -80,6 +83,15 @@ KEY_POTION_INTENT = "potion_intent"
 #: 上一次**手动**喝药的结果。自动喝药刻意不写：它每 tick 都可能发生，
 #: 往屏幕上刷一行提示等于噪音（血条动了就是反馈）
 KEY_LAST_POTION = "last_potion"
+#: 按一次 F 开工 / 再按一次收工（``MiningSystem`` 消费即清——不清的话
+#: 一次按键会在接下来的每个 tick 里各切换一次，等于按住 F 每秒开关 10 次）
+KEY_MINE_TOGGLE = "mine_toggle"
+#: 矿点账本：``{矿点下标: {"swings": 当前储量, "total": 累计锄数, "until": 恢复时刻}}``。
+#: 换图整体作废——下标在新图上指向的是另一个地方，留着就是脏数据
+KEY_MINING_VEINS = "mining_veins"
+#: 上一锄的结果。空锄刻意不写（与自动喝药同理）：10 刻一锄，
+#: 每锄都弹一行的话屏幕就没法看了
+KEY_LAST_ORE = "last_ore"
 
 #: 佣兵到期离队（字符串与 ``mercenary.EVT_DISMISS`` 同一个，这里导入避免系统与规则层互相 import）
 EVT_MERC_DISMISS = mercenary.EVT_DISMISS
@@ -437,6 +449,121 @@ class PotionSystem(System):
         if manual:
             got["ok"] = True
             world.set_data(KEY_LAST_POTION, got)
+
+
+class MiningSystem(System):
+    """挖矿（P3-S4）：按 ``F`` 开工，站在矿点上每 10 刻出一锄，挪一步就自动收工。
+
+    priority 9 = 喝药（8）之后、技能冷却递减（10）之前；更关键的是在移动（12）
+    **之前**——出一锄的那一 tick 把移动意图清零，人必须站住才挥得下去。
+
+    "走开自动收工"而不是"再按一次 F 才算收工"：玩家移动时脚下已经不在矿点上了，
+    继续挖就是"人在别处、矿在这边"的脏状态。反过来，挖矿**不禁止出手**——
+    怪扑上来时不给还手，玩家就只能跑（一跑就中断），挖矿会变成纯挨打。
+
+    为什么不把矿点做成实体：矿点是地图的一部分（与传送点同级），做成实体就得
+    跟着换图生灭，还要给它发 id、进掉落与索敌的遍历。账本放在世界数据里、
+    换图整体作废，是最省的一条路，也和"图内矿点用下标"的数据形状对得上。
+    """
+
+    priority = 9
+
+    def __init__(self, *, data: GameData) -> None:
+        self.data = data
+        self._map_id = ""
+
+    def update(self, world: World, dt: float) -> None:
+        data = world.get_data("data") or self.data
+        tick = int(world.get_data(KEY_TICK, 0))
+        player = world.get_entity("player")
+        if player is None:
+            return
+        map_id = str(world.get_data("current_map") or "")
+        seed = int(world.get_data("seed", 0))
+        map_spec = data.maps["maps"].get(map_id, {})
+        state = player.get(Mining)
+        if state is None:
+            return
+
+        # 换图：矿点账本整体作废。图内矿点是**下标**，留着会指到别的地方去
+        if map_id != self._map_id:
+            self._map_id = map_id
+            world.set_data(KEY_MINING_VEINS, {})
+            state.active = False
+            state.vein = -1
+        veins = world.get_data(KEY_MINING_VEINS)
+        if not isinstance(veins, dict):
+            veins = {}
+            world.set_data(KEY_MINING_VEINS, veins)
+
+        # 1) F 键：开工 / 收工（消费即清，不清的话按住 F 会每秒开关十次）
+        if world.get_data(KEY_MINE_TOGGLE):
+            world.set_data(KEY_MINE_TOGGLE, None)
+            xy0 = mining.player_xy(player)
+            index0 = mining.vein_at(map_spec, *xy0) if xy0 is not None else None
+            if state.active:
+                state.active = False   # 收工不回音：锄头停了就是停了
+            elif index0 is None:
+                # 脚下没矿点这一句**必须**回。不回的话按 F 毫无反应，
+                # 玩家只会以为键坏了，不会想到是站错地方
+                world.set_data(KEY_LAST_ORE, {"ok": False, "code": "no_vein"})
+            else:
+                state.active = True
+                state.next_tick = tick  # 开工即刻能挥第一锄，响应感靠这条
+
+        xy = mining.player_xy(player)
+        if xy is None:
+            return
+        x, y = xy
+        index = mining.vein_at(map_spec, x, y)
+        if index is None:
+            state.active = False     # 脚不在矿点上 = 收工（人走了，锄头就停下）
+            state.vein = -1
+            return
+        if not state.active:
+            return
+        if tick < int(state.next_tick):
+            return
+        # 倒地 / 没锄头放在节奏点**之后**判定：
+        # 它们是“这一锄挖不挖”的条件，不是“能不能开工”的条件
+
+        # 到一个节奏点了。先记账再判定——不然"卡在冷却里"会被判成"能挖"
+        state.next_tick = tick + mining.MINING_TICKS
+
+        # 挖矿必须站住：把移动意图清零（本系统跑在 MovementSystem 之前）
+        world.set_data(KEY_MOVE_INTENT, (0, 0))
+
+        blocker = mining.can_mine(player, data, map_spec, x, y)
+        if blocker is not None:
+            state.active = False
+            world.set_data(KEY_LAST_ORE, {"ok": False, "code": blocker})
+            return
+        body = player.get(Body)
+        if body is not None and int(body.max_weight) - int(carried_weight(player, data)) \
+                < mining.lightest_ore_weight(data):
+            # 背不动了：宁可让人空挥，也不给"挖到了却捡不起来"的挫败。
+            # 这里没有空子可钻——矿石不入包、锄头照磨，玩家拿不到任何收益
+            state.active = False
+            world.set_data(KEY_LAST_ORE, {"ok": False, "code": "overweight"})
+            return
+
+        vstate = veins.setdefault(str(index), {"swings": 0, "total": 0, "until": 0})
+        mining.regrow(vstate, tick)
+        if mining.is_depleted(vstate, tick):
+            state.active = False
+            world.set_data(KEY_LAST_ORE, {"ok": False, "code": "depleted",
+                                          "until": int(vstate.get("until", 0))})
+            return
+
+        got = mining.mine_one(player, data, map_spec=map_spec, map_id=map_id,
+                              seed=seed, tick=tick, state=vstate, vein_index=index)
+        state.vein = index
+        if got["ore"]:
+            state.last = got["ore"]
+            world.set_data(KEY_LAST_ORE, {"ok": True, **got})
+        elif got["missed"]:
+            world.set_data(KEY_LAST_ORE, {"ok": False, "code": "bag_full"})
+        # 空锄不回音：10 刻一锄，每锄都弹一行的话屏幕就没法看了
 
 
 class CooldownSystem(System):

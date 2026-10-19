@@ -33,6 +33,7 @@ from mirsolo.components import (
     Downed,
     Identity,
     Loadout,
+    Mining,
     Position,
     Progression,
     Shield,
@@ -42,7 +43,13 @@ from mirsolo.components import (
     Wear,
 )
 from mirsolo.actor import codex, mercenary, penalty
-from mirsolo.actor.systems import KEY_LAST_POTION, KEY_POTION_INTENT
+from mirsolo.actor.systems import (
+    KEY_LAST_ORE,
+    KEY_MINING_VEINS,
+    KEY_LAST_POTION,
+    KEY_MINE_TOGGLE,
+    KEY_POTION_INTENT,
+)
 from mirsolo.economy import auction
 from mirsolo.economy.shop import (
     TradeError,
@@ -51,9 +58,10 @@ from mirsolo.economy.shop import (
     repair_all,
     resupply,
     sell,
+    sell_ores,
     withdraw,
 )
-from mirsolo.items import potion, wear
+from mirsolo.items import mining, potion, wear
 from mirsolo.items.equipment import EquipError, equip, recompute, unequip
 from mirsolo.items.rings import RingError, try_travel
 from mirsolo.presentation.hud import (
@@ -102,6 +110,10 @@ POTION_KEYS = {
     pyglet.window.key.E: "mp",
 }
 
+# 挖矿键：F。按一次开工、再按一次收工；
+# 走开也算收工（系统侧自己停），所以不存在“人在别处、矿在这边”的脏状态。
+MINE_KEY = pyglet.window.key.F
+
 #: 面板开关键 → 面板名。放在这里而不是散在 if 里：加面板只改这张表
 PANEL_KEYS = {
     pyglet.window.key.C: "character",
@@ -110,6 +122,16 @@ PANEL_KEYS = {
     pyglet.window.key.N: "auction",
     pyglet.window.key.B: "shop",
     pyglet.window.key.V: "warehouse",
+}
+
+#: 挖矿拒绝码 → 玩家能看懂的话（码本身给测试断言用，不上屏）
+MINE_ERRORS = {
+    "no_vein": "脚下没有矿点",
+    "no_pick": "手上没握鹤嘴锄",
+    "downed": "倒地挖不了矿",
+    "depleted": "这个矿点挖空了",
+    "overweight": "背不动了，回城卸货",
+    "bag_full": "背包装不下新种矿石",
 }
 
 #: 特戒拒绝码 → 玩家能看懂的话（码本身给测试断言用，不上屏）
@@ -150,6 +172,7 @@ TRADE_ERRORS = {
     "stash_full": "仓库已满",
     "bad_count": "数量不对",
     "nothing_to_repair": "这件还是好的",
+    "nothing_to_sell": "没有可卖的东西",
     "missing_components": "角色数据异常",
 }
 
@@ -329,6 +352,9 @@ class MirsoloWindow(pyglet.window.Window):
         if symbol in POTION_KEYS:
             self._drink(POTION_KEYS[symbol])
             return
+        if symbol == MINE_KEY:
+            self._toggle_mining()
+            return
         # 技能栏 1..5（数字键与数字小键盘都收）：按一次放一次，
         # 长按不连发——连发交给冷却门控反而会让节奏变乱。
         if symbol in SKILL_KEYS:
@@ -421,6 +447,9 @@ class MirsoloWindow(pyglet.window.Window):
             elif row.action == "repair_all":
                 got = repair_all(player, data)
                 self._say(f"修理 {len(got['items'])} 件 −{got['paid']} 金")
+            elif row.action == "sell_ores":
+                got = sell_ores(player, data)
+                self._say(f"卖掉 {len(got['items'])} 种矿石 ＋{got['earned']} 金")
             elif row.action == "cycle_tier":
                 self._say(f"报价档：{auction.cycle_ask_tier(player)}")
             elif row.action == "hire":
@@ -521,6 +550,59 @@ class MirsoloWindow(pyglet.window.Window):
         joined = "　".join(parts)
         self._say(f"喝下 {name}　{joined}　剩 {got['left']} 瓶")
 
+    def _toggle_mining(self) -> None:
+        """按 F：开工 / 收工。
+
+        只投意图，不直接改状态——与移动/攻击同一条纪律，
+        窗口层绕过去就会和 headless 走出两套节奏。
+        """
+
+        player = self.session.world.get_entity("player")
+        if player is None:
+            return
+        self.session.world.set_data(KEY_MINE_TOGGLE, True)
+
+    def _report_ore(self) -> None:
+        """把上一锄的结果翻成一句话（**空锄不回音**）。
+
+        空锄不回音与自动喝药同理：十刻一锄，每锄都弹一行的话屏幕就没法看了。
+        挖到了才弹；挖不动的原因也弹——只有“该去别处”的时候才需要告诉玩家。
+        """
+
+        got = self.session.world.get_data(KEY_LAST_ORE)
+        if not got:
+            return
+        self.session.world.set_data(KEY_LAST_ORE, None)
+        if not got.get("ok"):
+            self._say(MINE_ERRORS.get(got.get("code", ""), got.get("code", "挖不动")))
+            return
+        name = self.session.data.items["items"].get(
+            got["ore"], {}).get("name", got["ore"])
+        self._say(f"挖到 {name}")
+
+    def _mining_caption(self) -> str:
+        """HUD 那一行挖矿状态。空串 = 不占这一行。
+
+        带上“第几锄/储量”是因为挖矿的节奏本身就是信息——玩家得先知道
+        矿快挖空了，才会去换下一个点，而不是挖到弹“挖空了”才反应过来。
+        """
+
+        player = self.session.world.get_entity("player")
+        if player is None:
+            return ""
+        state = player.get(Mining)
+        if state is None or not state.active:
+            return ""
+        map_spec = self.session.data.maps["maps"][self.session.map_id]
+        index = int(state.vein)
+        mines = map_spec.get("mines", [])
+        if index < 0 or index >= len(mines):
+            return ""
+        spec = self.session.data.vein(str(mines[index]["vein"]))
+        ledger = (self.session.world.get_data(KEY_MINING_VEINS) or {}).get(
+            str(index)) or {}
+        return f"挖矿中　{spec.get('name', '')}　{int(ledger.get('swings', 0))}/{int(spec.get('capacity', 0))} 锄"
+
     # ── 输入 → 意图 ─────────────────────────────────
 
 
@@ -612,6 +694,7 @@ class MirsoloWindow(pyglet.window.Window):
                 self.session.queue_attack(self.session.world.get_entity("player"), target)
         self.session.engine.advance(self._last_real_dt)
         self._report_potion()
+        self._report_ore()
 
         if player is not None:
             pos = player.get(Position)
@@ -626,7 +709,8 @@ class MirsoloWindow(pyglet.window.Window):
         self.renderer.draw_floor(self.camera, map_spec, self.session.map_id,
                                  MAP_PALETTE.get(map_spec["kind"], (0.3, 0.3, 0.3)))
         self.renderer.draw_instances(self.camera,
-                                     build_instances(self.session.world, self.session.data))
+                                     build_instances(self.session.world, self.session.data,
+                                map_id=self.session.map_id))
         self.renderer.end_3d()
         self._draw_hud()
         self._draw_panel()
@@ -667,6 +751,7 @@ class MirsoloWindow(pyglet.window.Window):
             cooldowns=dict(cooldowns.remaining) if cooldowns is not None else None,
             shield=(shield.current, shield.max) if shield is not None else (0, 0),
             siege=siege_status(self.session.world),
+            mining=self._mining_caption(),
         )
 
         for bar in (layout.hp, layout.mp, layout.exp):
@@ -787,7 +872,7 @@ class MirsoloWindow(pyglet.window.Window):
                 color=(255, 110, 90, 255) if banner.urgent else (200, 206, 216, 255)))
 
         self._hud_labels.append(Label(
-            "WASD/方向键移动　空格攻击　1-5 技能　C 角色　M 佣兵　J 图鉴　N 拍卖行　B 商店　V 仓库　滚轮缩放　ESC 退出",
+            "WASD/方向键移动　空格攻击　1-5 技能　F 挖矿　C 角色　M 佣兵　J 图鉴　N 拍卖行　B 商店　V 仓库　滚轮缩放　ESC 退出",
             x=self.width / 2, y=8, font_size=11, font_name=FONT,
             anchor_x="center", color=(170, 176, 186, 255)))
 
@@ -934,7 +1019,8 @@ def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
                       codex_kills: int = 0, bag: bool = False,
                       wear_left: int | None = None,
                       dead: bool = False, hurt: bool = False,
-                      potions: bool = False) -> None:
+                      potions: bool = False, mine: bool = False,
+                      ore: bool = False) -> None:
     """验收辅助：提等级 / 发金币 / 发一套装备 / 雇佣兵 / 记图鉴。
 
     刻意**复用游戏内路径**（``apply_growth`` + ``learn`` + ``equip`` + ``hire`` +
@@ -957,6 +1043,11 @@ def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
       配合 ``--gold`` 使用；
     * ``hurt``——把血/蓝打到自动阈值以下（HP 400‰ / MP 200‰），开窗第一刻
       就能看到自动喝药启动。刻意**不碰** ``PotionState``：喝不喝由系统自己决定。
+    * ``mine``——把人送到本图第一个矿点上、手握鹤嘴锄、并按下 F。
+      锄头走 ``equip`` 真路径（负重那道门还在，背包那把不算），
+      id 从数据面扫出来（加新工具不用改这里）；这张图没矿点就打一行提示。
+    * ``ore``——每种矿石塞一块进背包（验收专用，**不校验负重**，
+      否则截图前还得先算一遍这身装备还剩多少余量）。
     """
     player = session.world.get_entity("player")
     if player is None:
@@ -998,6 +1089,26 @@ def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
             vitals.hp = max(1, int(vitals.max_hp) * 400 // 1000)
             if int(vitals.max_mp) > 0:
                 vitals.mp = int(vitals.max_mp) * 200 // 1000
+    if mine:
+        picks = mining.pick_ids(session.data)
+        if not picks:
+            print("[验收] 数据面没有能挖矿的工具")
+        else:
+            player.get(Bag).add(picks[0], 1)
+            try:
+                equip(player, session.data, picks[0])
+            except EquipError as exc:
+                print(f"[验收] 拿不动鹤嘴锄（{exc.code}）：{exc} —— 先加 --level N")
+        points = session.data.maps["maps"][session.map_id].get("mines", [])
+        if points:
+            pos = player.get(Position)
+            pos.x, pos.y = float(points[0]["at"][0]), float(points[0]["at"][1])
+            session.world.set_data(KEY_MINE_TOGGLE, True)
+        else:
+            print(f"[验收] {session.map_id} 没有矿点（有矿点的是 biqi_mine_1 / wugong_cave_1 / stone_tomb）")
+    if ore:
+        for item_id in mining.ore_ids(session.data):
+            player.get(Bag).add(item_id, 1)
     if dead:
         # 验收开关：只负责致死那一下；倒地 → 结算 → 复活全在
         # ``DeathPenaltySystem`` + ``actor.penalty`` 里，避免两套实现分叉
@@ -1042,7 +1153,8 @@ def launch(*, seed: int = 20261019, map_id: str = "biqi_field",
            codex_kills: int = 0, bag: bool = False,
            wear_left: int | None = None,
            dead: bool = False, hurt: bool = False,
-           potions: bool = False) -> None:
+           potions: bool = False, mine: bool = False,
+           ore: bool = False) -> None:
     """装配会话 + 开窗（CLI 与测试共用入口）。
 
     ``panel`` 只用于验收截图：开窗时就打开某个面板（``character``/``mercenary``/
@@ -1058,7 +1170,8 @@ def launch(*, seed: int = 20261019, map_id: str = "biqi_field",
     prepare_character(session, class_id=player_class, level=level,
                       learn_all=learn, gear=gear, gold=gold, mercs=mercs,
                       codex_kills=codex_kills, bag=bag, wear_left=wear_left,
-                      dead=dead, hurt=hurt, potions=potions)
+                      dead=dead, hurt=hurt, potions=potions,
+                      mine=mine, ore=ore)
     if siege is not None:
         start_siege(session, siege)
     window = MirsoloWindow(session=session, width=width, height=height)

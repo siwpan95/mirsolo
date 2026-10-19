@@ -58,6 +58,24 @@ SPECIES_COLOR = {
 
 PLAYER_COLOR = (0.28, 0.52, 0.95, 1.0)
 
+#: 矿脉配色（白名单优先，认不出走哈希——与 ``SPECIES_COLOR`` 同一套做法）。
+#: 矿点画成**矮方块**：低于人形（1.45），和怪一眼能分开，又不会挡住后面的怪
+VEIN_COLOR = {
+    "vein_copper": (0.72, 0.45, 0.30, 1.0),   # 铜：橙褐
+    "vein_iron": (0.56, 0.56, 0.60, 1.0),     # 铁：冷灰
+    "vein_gold": (0.86, 0.70, 0.25, 1.0),     # 金：暗金
+    "vein_black": (0.20, 0.18, 0.21, 1.0),    # 黑铁：近黑
+}
+
+
+def vein_color(vein_id: str) -> RGBA:
+    if vein_id in VEIN_COLOR:
+        return VEIN_COLOR[vein_id]
+    seed = sum(map(ord, vein_id)) & 0xFFFFFFFF
+    return (0.35 + 0.4 * _hash01(seed, 1, 0),
+            0.30 + 0.4 * _hash01(seed, 2, 0),
+            0.25 + 0.4 * _hash01(seed, 3, 0), 1.0)
+
 
 @dataclass(frozen=True)
 class Instance:
@@ -105,11 +123,13 @@ def species_color(species: str, level: int = 1) -> RGBA:
     return (*_mix(rgb, boost), 1.0)
 
 
-def build_instances(world, data, *, player_eid: str = "player") -> list[Instance]:
-    """从世界快照出待绘制实例（玩家 + 存活的怪 + 尸体不画）。
+def build_instances(world, data, *, player_eid: str = "player",
+                    map_id: str = "") -> list[Instance]:
+    """从世界快照出待绘制实例（玩家 + 存活的怪 + 尸体不画 + 矿点标记）。
 
     尺寸约定：人形 0.62×0.62×1.5；怪物按 ``monsters.json`` 的 ``size``
-    缩放（size 1 → 0.6 见方，size 2 → 1.0 见方，高度略高于人）。
+    缩放（size 1 → 0.6 见方，size 2 → 1.0 见方，高度略高于人）；
+    矿点 0.9×0.9×0.35（矮方块，和怪一眼能分开）。
     """
     instances: list[Instance] = []
     for entity in world.each(Identity, Position, Vitals):
@@ -153,6 +173,18 @@ def build_instances(world, data, *, player_eid: str = "player") -> list[Instance
             kind="monster",
             eid=entity.eid or "",
         ))
+    # 矿点：地图的一部分（与传送点同级），不是实体，所以不进上面的实体循环。
+    # 不画出来玩家根本找不到 (14, 20) 这种坐标——矿脉是按坐标写死在数据里的
+    if map_id:
+        spec = data.maps["maps"].get(map_id, {})
+        for mine in spec.get("mines", []):
+            mx, my = mine.get("at", (0, 0))
+            instances.append(Instance(
+                x=float(mx), y=float(my), z=0.0,
+                sx=0.9, sy=0.9, sz=0.35,
+                color=vein_color(str(mine.get("vein", ""))),
+                kind="vein",
+            ))
     instances.sort(key=lambda i: i.sort_key)
     return instances
 

@@ -1,0 +1,152 @@
+{
+  "veins": {
+    "vein_copper": {
+      "name": "铜矿脉",
+      "yield_bp": 3500,
+      "capacity": 20,
+      "regrow_ticks": 600,
+      "entries": [
+        {
+          "item": "ore_copper",
+          "bp": 5500
+        },
+        {
+          "item": "ore_iron",
+          "bp": 2500
+        },
+        {
+          "item": "ore_silver",
+          "bp": 1200
+        },
+        {
+          "item": "ore_gold",
+          "bp": 500
+        },
+        {
+          "item": "ore_blackiron_1",
+          "bp": 200
+        },
+        {
+          "item": "ore_blackiron_2",
+          "bp": 100
+        }
+      ]
+    },
+    "vein_iron": {
+      "name": "铁矿脉",
+      "yield_bp": 3200,
+      "capacity": 20,
+      "regrow_ticks": 600,
+      "entries": [
+        {
+          "item": "ore_iron",
+          "bp": 4500
+        },
+        {
+          "item": "ore_copper",
+          "bp": 2000
+        },
+        {
+          "item": "ore_silver",
+          "bp": 1500
+        },
+        {
+          "item": "ore_gold",
+          "bp": 800
+        },
+        {
+          "item": "ore_blackiron_1",
+          "bp": 700
+        },
+        {
+          "item": "ore_blackiron_2",
+          "bp": 300
+        },
+        {
+          "item": "ore_blackiron_3",
+          "bp": 200
+        }
+      ]
+    },
+    "vein_gold": {
+      "name": "金矿脉",
+      "yield_bp": 2800,
+      "capacity": 20,
+      "regrow_ticks": 600,
+      "entries": [
+        {
+          "item": "ore_gold",
+          "bp": 3000
+        },
+        {
+          "item": "ore_silver",
+          "bp": 2800
+        },
+        {
+          "item": "ore_iron",
+          "bp": 1800
+        },
+        {
+          "item": "ore_copper",
+          "bp": 1400
+        },
+        {
+          "item": "ore_blackiron_1",
+          "bp": 400
+        },
+        {
+          "item": "ore_blackiron_2",
+          "bp": 300
+        },
+        {
+          "item": "ore_blackiron_3",
+          "bp": 200
+        },
+        {
+          "item": "ore_blackiron_4",
+          "bp": 100
+        }
+      ]
+    },
+    "vein_black": {
+      "name": "黑铁矿脉",
+      "yield_bp": 1800,
+      "capacity": 20,
+      "regrow_ticks": 600,
+      "entries": [
+        {
+          "item": "ore_blackiron_1",
+          "bp": 2500
+        },
+        {
+          "item": "ore_blackiron_2",
+          "bp": 1800
+        },
+        {
+          "item": "ore_blackiron_3",
+          "bp": 1000
+        },
+        {
+          "item": "ore_blackiron_4",
+          "bp": 500
+        },
+        {
+          "item": "ore_gold",
+          "bp": 1600
+        },
+        {
+          "item": "ore_silver",
+          "bp": 1200
+        },
+        {
+          "item": "ore_iron",
+          "bp": 900
+        },
+        {
+          "item": "ore_copper",
+          "bp": 500
+        }
+      ]
+    }
+  }
+}

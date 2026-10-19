@@ -19,6 +19,7 @@ from mirsolo.components import (
     Identity,
     Loadout,
     Mercenary,
+    Mining,
     Position,
     PotionState,
     Progression,
@@ -99,6 +100,7 @@ def spawn_player(
     entity.add(Loadout())
     entity.add(Wear())
     entity.add(DeathLedger())
+    entity.add(Mining())
     entity.add(PotionState())
     entity.add(Skills())
     entity.add(Cooldowns())

@@ -93,6 +93,36 @@
           ],
           "name": "蜈蚣洞"
         }
+      ],
+      "mines": [
+        {
+          "at": [
+            14,
+            20
+          ],
+          "vein": "vein_copper"
+        },
+        {
+          "at": [
+            46,
+            12
+          ],
+          "vein": "vein_copper"
+        },
+        {
+          "at": [
+            10,
+            48
+          ],
+          "vein": "vein_iron"
+        },
+        {
+          "at": [
+            50,
+            40
+          ],
+          "vein": "vein_iron"
+        }
       ]
     },
     "wugong_cave_1": {
@@ -136,6 +166,22 @@
             60
           ],
           "name": "古墓入口"
+        }
+      ],
+      "mines": [
+        {
+          "at": [
+            18,
+            30
+          ],
+          "vein": "vein_iron"
+        },
+        {
+          "at": [
+            48,
+            44
+          ],
+          "vein": "vein_gold"
         }
       ]
     },
@@ -273,6 +319,22 @@
             60
           ],
           "name": "封魔谷"
+        }
+      ],
+      "mines": [
+        {
+          "at": [
+            22,
+            50
+          ],
+          "vein": "vein_gold"
+        },
+        {
+          "at": [
+            52,
+            16
+          ],
+          "vein": "vein_black"
         }
       ]
     },

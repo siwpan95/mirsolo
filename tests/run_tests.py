@@ -43,6 +43,7 @@ MODULES = [
     "test_wear",
     "test_penalty",
     "test_potion",
+    "test_mining",
     "test_codex",
 ]
 

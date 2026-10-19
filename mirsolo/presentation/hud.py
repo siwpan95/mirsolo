@@ -195,6 +195,7 @@ def build_hud(
     cooldowns: dict[str, float] | None = None,
     shield: tuple[int, int] = (0, 0),
     siege: dict | None = None,
+    mining: str = "",
 ) -> HudLayout:
     """按屏幕尺寸算 HUD 布局（左下角三条状态条 + 右上角统计）。
 
@@ -205,6 +206,7 @@ def build_hud(
     - 右上：地图名 / 击杀 / 背包；
     - 底部居中：技能栏；
     - 顶部居中：攻城状态条（仅战役进行中）。
+    - 左下角状态条正上方：挖矿一行（**只在挥锄时出现**，由调用方决定内容）。
     - 所有矩形都夹在 ``[0, width] × [0, height]`` 内。
     """
     width = int(width)
@@ -236,6 +238,13 @@ def build_hud(
         TextAnchor(f"击杀 {kills}", width - margin, height - margin - 32, 12),
         TextAnchor(f"背包 {bag.used}/{bag.capacity}", width - margin, height - margin - 50, 12),
     ]
+
+    # 挖矿：调用方传进来的是已经拼好的一句话，空串就不占这一行。
+    # 刻意不做成常驻的“未开工”——站在城里也挂一行是噪音
+    if mining:
+        texts.append(TextAnchor(
+            mining, margin, margin + 3 * (bar_height + gap) + 12, 12,
+            (1.0, 0.86, 0.48, 1.0)))
 
     # 护盾：只在有盾时出现，避免常驻一行无意义的 0/0
     if shield[1] > 0:

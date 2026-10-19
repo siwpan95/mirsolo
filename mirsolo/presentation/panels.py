@@ -41,7 +41,7 @@ from mirsolo.components import (
 from mirsolo.actor import codex, mercenary
 from mirsolo.data.loader import SLOTS, GameData
 from mirsolo.economy import auction
-from mirsolo.economy.shop import buy_price, sell_price
+from mirsolo.economy.shop import buy_price, ore_value, sell_price
 from mirsolo.items import potion, wear
 from mirsolo.items.rings import EFFECT_LABELS, charges_left, ring_effect
 from mirsolo.presentation.hud import Rect, TextAnchor
@@ -375,18 +375,28 @@ def build_shop_panel(*, player: Entity, data: GameData,
                                      (0.95, 0.86, 0.55, 1.0)))
     panel.scroll_max = max(shop_max, sell_max)
 
-    # 修理：做成面板底部一行可点条目（与拍卖行「报价档」同一套做法），
-    # 而不是塞进某一栏——两栏都已经排满，插进去就要挤掉一行货架。
-    # 没有磨损时**整行不出现**，免得每页都挂着一个点了报错的按钮。
+    # 底部可点条目（与拍卖行「报价档」同一套做法），不塞进某一栏——
+    # 两栏都排满了，插进去就要挤掉一行货架。
+    # 两条都是“没有就不出现”：免得页脚常驻一个点了就报错的按钮。
+    # 两条同时在时**左右各占一半**——底部那点地方只够一条整行，
+    # 上下叠会压到金币/关闭提示那行小字（页脚 46px，实测踩过）。
+    bottom: list[tuple[str, str, bool]] = []
     total = wear.total_repair_cost(data, player)
     if total > 0:
         able = gold >= total
         text = f"修理全部：{total} 金"
         if not able:
             text += f"（还差 {total - gold} 金）"
+        bottom.append((text, "repair_all", able))
+    income = ore_value(data, player)
+    if income > 0:
+        bottom.append((f"卖掉全部矿石：进账 {income} 金", "sell_ores", True))
+    slot_w = (rect.w - 2 * COLUMN_GAP - (len(bottom) - 1) * COLUMN_GAP) / max(1, len(bottom))
+    for index, (text, action, able) in enumerate(bottom):
+        x = rect.x + COLUMN_GAP + index * (slot_w + COLUMN_GAP)
         panel.rows.append(Row(
-            rect=Rect(rect.x + COLUMN_GAP, rect.y + 8, rect.w - 2 * COLUMN_GAP, ROW_HEIGHT),
-            text=text, action="repair_all", item="", detail="", enabled=able))
+            rect=Rect(x, rect.y + 8, slot_w, ROW_HEIGHT),
+            text=text, action=action, item="", detail="", enabled=able))
 
     # 页脚比别的面板抬 10px：这一页底部多了一行可点条目（rect.y + 8 起 22 高），
     # 不抬的话金币与关闭提示压在那一行上（拍卖行版式实测踩过同一个坑）。
