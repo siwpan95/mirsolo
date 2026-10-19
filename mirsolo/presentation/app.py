@@ -37,6 +37,7 @@ from mirsolo.components import (
 )
 from mirsolo.economy.shop import TradeError, buy, deposit, sell, withdraw
 from mirsolo.items.equipment import EquipError, equip, unequip
+from mirsolo.items.rings import RingError, try_travel
 from mirsolo.presentation.hud import (
     MAX_SKILL_SLOTS,
     SIEGE_BANNER_HEIGHT,
@@ -69,11 +70,24 @@ SKILL_KEYS = (
     pyglet.window.key.NUM_4, pyglet.window.key.NUM_5,
 )
 
+#: 特戒指动键（传送戒指）。与技能键一样按一次发动一次，长按不连发
+RING_KEY = pyglet.window.key.T
+
 #: 面板开关键 → 面板名。放在这里而不是散在 if 里：加面板只改这张表
 PANEL_KEYS = {
     pyglet.window.key.C: "character",
     pyglet.window.key.B: "shop",
     pyglet.window.key.V: "warehouse",
+}
+
+#: 特戒拒绝码 → 玩家能看懂的话（码本身给测试断言用，不上屏）
+RING_ERRORS = {
+    "no_ring": "没戴戒指",
+    "wrong_ring": "这枚戒指不是传送",
+    "unknown_map": "目标地图不存在",
+    "same_map": "已经在这张图了",
+    "cooling": "冷却中",
+    "dead": "死亡状态不能传送",
 }
 
 #: 拒绝码 → 玩家能看懂的话。码本身是给测试断言用的，不能直接上屏
@@ -229,6 +243,9 @@ class MirsoloWindow(pyglet.window.Window):
         if symbol in PANEL_KEYS:
             self._toggle_panel(PANEL_KEYS[symbol])
             return
+        if symbol == RING_KEY:
+            self._use_ring()
+            return
         # 技能栏 1..5（数字键与数字小键盘都收）：按一次放一次，
         # 长按不连发——连发交给冷却门控反而会让节奏变乱。
         if symbol in SKILL_KEYS:
@@ -312,6 +329,25 @@ class MirsoloWindow(pyglet.window.Window):
             self._say(f"{row.text}：{EQUIP_ERRORS.get(exc.code, exc.code)}")
         except TradeError as exc:
             self._say(f"{row.text}：{TRADE_ERRORS.get(exc.code, exc.code)}")
+
+    # ── 特戒（T 键） ────────────────────────────────
+
+    def _use_ring(self) -> None:
+        """传送戒指：规则全在 ``items.rings.try_travel``，这里只翻译拒绝码。
+
+        与买卖穿脱同一条纪律：**窗口层不做 judging**——它连"目标图是哪张"
+        都是从数据表读来的，换成任何别的实现都不会分叉。
+        """
+        player = self.session.world.get_entity("player")
+        if player is None:
+            return
+        try:
+            result = try_travel(self.session.data, self.session, player,
+                                tick=self.session.tick)
+        except RingError as exc:
+            self._say(f"特戒：{RING_ERRORS.get(exc.code, exc.code)}")
+            return
+        self._on_map_changed(result)
 
     # ── 输入 → 意图 ─────────────────────────────────
 
@@ -559,7 +595,7 @@ class MirsoloWindow(pyglet.window.Window):
             return
         panel = build_panel(self.panel, player=player, data=self.session.data,
                             width=self.width, height=self.height,
-                            scroll=self.panel_scroll)
+                            scroll=self.panel_scroll, tick=self.session.tick)
         self._panel = panel
         self.panel_scroll = min(self.panel_scroll, panel.scroll_max)
 

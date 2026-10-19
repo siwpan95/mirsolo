@@ -512,6 +512,19 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 300,
+          "entries": [
+            {
+              "item": "yinshen_jiezhi",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         }
       ]
     },
@@ -709,6 +722,19 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 250,
+          "entries": [
+            {
+              "item": "mabi_jiezhi",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         }
       ]
     },
@@ -752,6 +778,19 @@
           "entries": [
             {
               "item": "chiyue_zhanjia",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 220,
+          "entries": [
+            {
+              "item": "huoyan_jiezhi",
               "permille": 10000,
               "count": [
                 1,
@@ -883,6 +922,19 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 220,
+          "entries": [
+            {
+              "item": "hushen_jiezhi",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         }
       ]
     },
@@ -994,6 +1046,19 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 250,
+          "entries": [
+            {
+              "item": "chuansong_jiezhi",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         }
       ]
     },
@@ -1098,6 +1163,19 @@
           "entries": [
             {
               "item": "xingyun_xianglian",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 200,
+          "entries": [
+            {
+              "item": "fuhuo_jiezhi",
               "permille": 10000,
               "count": [
                 1,

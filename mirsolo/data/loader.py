@@ -44,6 +44,29 @@ LUCK_SLOTS = ("weapon", "necklace")
 #: 物品大类：装备 / 技能书（P1-S2 起；消耗品待 P2 药水批次）
 ITEM_KINDS = frozenset({"equip", "book"})
 
+#: 特戒效果全集（数据面事实的唯一定义处，``mirsolo/items/rings.py`` 从这里导入）
+#: 六枚戒指按**触发时机**分成三类（命中触发 / 挨打触发 / 主动触发），
+#: 口径与替代方案写在 ``rings.py`` 的模块 docstring 里。
+RING_EFFECTS = frozenset({
+    "paralysis",  # 命中后概率定身目标
+    "protect",    # 受伤时按比例用 MP 代偿
+    "revive",     # 致死那一下拦下来并回血
+    "teleport",   # 主动：数据驱动的回城点
+    "invis",      # 持续：出手破隐，冷却后重新结
+    "flame",      # 命中后追加一次火焰伤害
+})
+
+#: 每种效果必须给出的参数键。缺一个就是"表写了一半"——靠
+#: ``scripts/verify.py`` 的 ``ring-effects`` 门禁拦住，别指望运行时才发现。
+RING_PARAM_KEYS: dict[str, tuple[str, ...]] = {
+    "paralysis": ("bp", "ticks"),
+    "protect": ("permille",),
+    "revive": ("charges", "hp_permille"),
+    "teleport": ("map", "cooldown_ticks"),
+    "invis": ("ticks", "recover_ticks"),
+    "flame": ("power_permille",),
+}
+
 #: 攻城目标类型：城门 / 内城门 / 旗台（旗台倒下 = 战役胜利）
 SIEGE_OBJECTIVES = frozenset({"gate", "inner_gate", "banner"})
 
@@ -180,6 +203,26 @@ class GameData:
                 errs.append(f"items.json[{iid}]: 未知 kind {kind!r}")
             if kind == "equip" and spec.get("slot") not in SLOTS:
                 errs.append(f"items.json[{iid}]: 装备槽位非法 {spec.get('slot')!r}")
+            # 特戒：``ring`` 槽只允许六种效果之一，且参数必须齐全。
+            # 这条不放宽到"戒指可以不带效果"——一旦允许纯属性戒指，
+            # "六戒各有且只有一个效果"就不再是事实，ring-effects 门禁也没法查。
+            effect = spec.get("ring_effect")
+            if spec.get("slot") == "ring":
+                if effect is None:
+                    errs.append(f"items.json[{iid}]: 戒指缺 ring_effect")
+                elif effect not in RING_EFFECTS:
+                    errs.append(f"items.json[{iid}]: 未知 ring_effect {effect!r}")
+            elif effect is not None:
+                errs.append(f"items.json[{iid}]: ring_effect 只能写在戒指上（当前槽 "
+                            f"{spec.get('slot')!r}）")
+            if effect is not None and effect in RING_EFFECTS:
+                param = spec.get("ring_param")
+                if not isinstance(param, dict):
+                    errs.append(f"items.json[{iid}]: ring_effect 需要 ring_param 字典")
+                else:
+                    omitted = [k for k in RING_PARAM_KEYS[effect] if k not in param]
+                    if omitted:
+                        errs.append(f"items.json[{iid}]: ring_param 缺 {omitted}")
             if kind == "book":
                 teaches = spec.get("teaches")
                 if teaches not in self.skills["skills"]:

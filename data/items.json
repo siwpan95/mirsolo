@@ -723,6 +723,196 @@
       "tier": "rare",
       "kind": "equip",
       "luck": 2
+    },
+    "yinshen_jiezhi": {
+      "name": "隐身戒指",
+      "slot": "ring",
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        0,
+        1
+      ],
+      "mac": [
+        0,
+        1
+      ],
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 12,
+      "level_req": 38,
+      "price": 150000,
+      "tier": "rare",
+      "kind": "equip",
+      "ring_effect": "invis",
+      "ring_param": {
+        "ticks": 40,
+        "recover_ticks": 30
+      }
+    },
+    "mabi_jiezhi": {
+      "name": "麻痹戒指",
+      "slot": "ring",
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        1,
+        1
+      ],
+      "mac": [
+        1,
+        1
+      ],
+      "accuracy": 0,
+      "weight": 2,
+      "durability": 14,
+      "level_req": 40,
+      "price": 220000,
+      "tier": "rare",
+      "kind": "equip",
+      "ring_effect": "paralysis",
+      "ring_param": {
+        "bp": 300,
+        "ticks": 20
+      }
+    },
+    "chuansong_jiezhi": {
+      "name": "传送戒指",
+      "slot": "ring",
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        0,
+        2
+      ],
+      "mac": [
+        0,
+        2
+      ],
+      "accuracy": 0,
+      "weight": 2,
+      "durability": 16,
+      "level_req": 42,
+      "price": 200000,
+      "tier": "rare",
+      "kind": "equip",
+      "ring_effect": "teleport",
+      "ring_param": {
+        "map": "biqi_field",
+        "cooldown_ticks": 300
+      }
+    },
+    "hushen_jiezhi": {
+      "name": "护身戒指",
+      "slot": "ring",
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        0,
+        1
+      ],
+      "mac": [
+        1,
+        1
+      ],
+      "accuracy": 0,
+      "weight": 2,
+      "durability": 18,
+      "level_req": 44,
+      "price": 260000,
+      "tier": "rare",
+      "kind": "equip",
+      "ring_effect": "protect",
+      "ring_param": {
+        "permille": 1000
+      }
+    },
+    "huoyan_jiezhi": {
+      "name": "火焰戒指",
+      "slot": "ring",
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "atk": [
+        1,
+        3
+      ],
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": [
+        0,
+        1
+      ],
+      "accuracy": 0,
+      "weight": 3,
+      "durability": 20,
+      "level_req": 46,
+      "price": 240000,
+      "tier": "rare",
+      "kind": "equip",
+      "ring_effect": "flame",
+      "ring_param": {
+        "power_permille": 300
+      }
+    },
+    "fuhuo_jiezhi": {
+      "name": "复活戒指",
+      "slot": "ring",
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        1,
+        2
+      ],
+      "mac": [
+        1,
+        2
+      ],
+      "accuracy": 0,
+      "weight": 3,
+      "durability": 22,
+      "level_req": 48,
+      "price": 300000,
+      "tier": "rare",
+      "kind": "equip",
+      "ring_effect": "revive",
+      "ring_param": {
+        "charges": 3,
+        "hp_permille": 500
+      }
     }
   }
 }

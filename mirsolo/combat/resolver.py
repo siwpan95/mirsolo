@@ -21,12 +21,16 @@ from mirsolo.components import (
     Attributes,
     Identity,
     Invisible,
+    Paralysis,
     Poison,
     Shield,
     SiegeObjective,
     Vitals,
 )
+from mirsolo.data.loader import GameData
 from mirsolo.determinism import Rng
+from mirsolo.items import rings
+from mirsolo.items.rings import EVT_PARALYSIS
 
 EVT_HIT = "combat:hit"
 EVT_MISS = "combat:miss"
@@ -37,12 +41,24 @@ EVT_POISON = "combat:poison"
 
 @dataclass
 class CombatContext:
-    """结算器依赖的最小环境：种子 + 世界 + 事件总线。"""
+    """结算器依赖的最小环境：种子 + 世界 + 事件总线。
+
+    ``data`` 刻意做成**可选**：多数调用方不需要查表（纯公式测试压根不建 world），
+    缺它时从 ``world.get_data("data")`` 兜。这样加"要查表的戒指"不必去改十几个
+    构造点——但记住只有装配层会把 ``data`` 真的放进 world data 里。
+    """
 
     seed: int
     world: World
     bus: EventBus | None = None
     tick: int = 0
+    data: GameData | None = None
+
+    @property
+    def game_data(self) -> GameData | None:
+        if self.data is not None:
+            return self.data
+        return self.world.get_data("data") if self.world is not None else None
 
 
 def _stream(prefix: str, attacker: Entity, defender: Entity, tick: int) -> str:
@@ -84,6 +100,23 @@ class CombatResolver:
         eaten = 0
         if shield is not None:
             eaten, amount = shield.absorb(amount)
+
+        # 护身戒指：**魔法盾吃完之后**再由戒指用 MP 代偿。顺序是刻意的——
+        # 反过来的话"戴着护身还套着盾"会把两层吸收叠成一个血池，耐久翻倍。
+        data = self.ctx.game_data
+        if data is not None and amount > 0:
+            mp_cost, amount = rings.split_protect(data, defender, amount)
+            if mp_cost:
+                eaten += mp_cost
+                vitals.mp = max(0, int(vitals.mp) - mp_cost)
+
+        # 复活戒指：致死判定必须**早于** take()。一旦先扣成 0 血再救回来，
+        # "死过一次"的副作用（死亡事件、尸体清算、攻城判负）已经发出去了，
+        # 救不干净。这里返回 0 表示"这一下最终没掉血"。
+        if data is not None and amount > 0 and amount >= int(vitals.hp):
+            if rings.try_revive(data, defender, bus=self.ctx.bus, tick=self.ctx.tick):
+                return 0
+
         dealt = vitals.take(amount)
         # 挨打即锁定攻击者：passive 怪靠这条路还手，elite 也能被远程激怒
         if source is not None:
@@ -119,11 +152,16 @@ class CombatResolver:
 
     def _apply(self, attacker: Entity, defender: Entity, outcome, kind: str) -> None:
         """把结算结果落到 Vitals 上并发事件。"""
-        # 主动出手即破除隐身（原版：一打就现形）
+        # 主动出手即破除隐身（原版：一打就现形）；隐身戒指的佩戴者还要记一笔
+        # "多久之后才能重新结隐"，否则就是无代价的永久隐身。
         attacker.remove(Invisible)
+        data = self.ctx.game_data
+        if data is not None:
+            rings.mark_strike(data, attacker, self.ctx.tick)
         if outcome.hit and outcome.damage > 0:
             self._damage(attacker, defender, outcome.damage, kind,
                          rolls=dict(outcome.rolls))
+            self._ring_strike(attacker, defender)
         elif not outcome.hit and self.ctx.bus is not None:
             self.ctx.bus.emit(
                 EVT_MISS,
@@ -134,6 +172,36 @@ class CombatResolver:
                     "tick": self.ctx.tick,
                 },
             )
+
+    def _ring_strike(self, attacker: Entity, defender: Entity) -> None:
+        """出手方的戒指效果（麻痹 / 火焰）。
+
+        放在主结算**之后**：原版也是"先出刀、再判定附加"。这样致死那一刀不会被
+        附加伤害重复触发一次死亡事件（死亡仍然只有 ``_damage`` 一处会发）。
+        目标已经倒下就不再追打——对着尸体放火焰只会把伤害流水搅乱。
+
+        随机流名刻意带 ``ring:`` 前缀且与主伤害流分开：戴上/摘下戒指不会挪动
+        主流的位置，换装备前后同一局的回放能对上。
+        """
+        data = self.ctx.game_data
+        vitals = defender.get(Vitals)
+        if data is None or vitals is None or not vitals.alive:
+            return
+        tick = int(self.ctx.tick)
+        para_rng = Rng(self.ctx.seed, f"ring:paralysis:{attacker.id}->{defender.id}@{tick}")
+        if rings.roll_paralysis(data, attacker, defender, para_rng, tick):
+            if self.ctx.bus is not None:
+                buff = defender.get(Paralysis)
+                self.ctx.bus.emit(EVT_PARALYSIS, {
+                    "attacker": attacker.id,
+                    "defender": defender.id,
+                    "until_tick": buff.until_tick if buff is not None else tick,
+                    "tick": tick,
+                })
+        flame_rng = Rng(self.ctx.seed, f"ring:flame:{attacker.id}->{defender.id}@{tick}")
+        extra = rings.flame_damage(data, attacker, flame_rng)
+        if extra > 0:
+            self._damage(attacker, defender, extra, "flame")
 
     # ── 公共面 ──────────────────────────────────────
 

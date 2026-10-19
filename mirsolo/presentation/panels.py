@@ -29,6 +29,7 @@ from mirsolo.components import (
     Attributes,
     Bag,
     Loadout,
+    Paralysis,
     Progression,
     Vitals,
     Wallet,
@@ -36,6 +37,7 @@ from mirsolo.components import (
 )
 from mirsolo.data.loader import SLOTS, GameData
 from mirsolo.economy.shop import buy_price, sell_price
+from mirsolo.items.rings import EFFECT_LABELS, charges_left, ring_effect
 from mirsolo.presentation.hud import Rect, TextAnchor
 
 #: 面板尺寸与行高（行高决定"一个屏能显示多少行"，超出部分靠 scroll 翻）
@@ -178,16 +180,24 @@ def _stat_hint(spec: dict) -> str:
         # 幸运单独列出而不并入"无加成"：它是 P2-S3 的核心机制，
         # 看不见的话玩家很难理解"为什么同样的刀有时刀刀上限"
         parts.append(f"幸运 +{spec['luck']}")
+    effect = spec.get("ring_effect")
+    if effect:
+        # 特戒的效果名必须上屏：戒指的属性加成普遍偏低（有的只有 1 点防），
+        # 只看属性行玩家会以为这是件垃圾装备
+        parts.append(f"特戒·{EFFECT_LABELS.get(effect, effect)}")
     return "　".join(parts) or "无加成"
 
 
 def build_character_panel(*, player: Entity, data: GameData,
                           width: int = 1280, height: int = 720,
-                          scroll: int = 0) -> Panel:
+                          scroll: int = 0, tick: int = 0) -> Panel:
     """角色面板：左 = 装备槽（点一下脱下），右 = 背包（点一下穿上）。
 
     属性行用的是**重算后的当前值**（``Attributes`` 已被 ``recompute`` 写过），
     不是数据表里的裸身值——玩家看到的必须就是打怪用的那个数。
+
+    ``tick`` 只用于"还剩几刻"这类倒计时（麻痹剩余时间）。它是可选参数且默认 0：
+    静态调用（截图验收、面板几何测试）不该为了画个倒计时先去够世界状态。
     """
     rect = _panel_rect(width, height)
     left, right = _columns(rect)
@@ -245,6 +255,19 @@ def build_character_panel(*, player: Entity, data: GameData,
         ]
         if vitals is not None:
             lines.append(f"气血 {vitals.hp}/{vitals.max_hp}　魔法 {vitals.mp}/{vitals.max_mp}")
+        # 戒指与状态：加成都很含蓄，不上屏等于没有
+        found = ring_effect(data, player)
+        if found is not None:
+            item_id, effect, _param = found
+            name = data.items["items"].get(item_id, {}).get("name", item_id)
+            line = f"戒指 {name}（{EFFECT_LABELS.get(effect, effect)}）"
+            left_charges = charges_left(data, player)
+            if left_charges is not None:
+                line += f"　剩余 {left_charges} 次"
+            lines.append(line)
+        buff = player.get(Paralysis)
+        if buff is not None and buff.active(tick):
+            lines.append(f"被麻痹：还剩 {buff.remaining(tick)} 刻")
         for index, line in enumerate(reversed(lines)):
             panel.texts.append(TextAnchor(line, left.x + 4, left.y + 70 + index * 15,
                                           10, (0.85, 0.87, 0.90, 1.0)))
@@ -269,8 +292,13 @@ def shop_stock(data: GameData) -> list[str]:
 
 def build_shop_panel(*, player: Entity, data: GameData,
                      width: int = 1280, height: int = 720,
-                     scroll: int = 0) -> Panel:
-    """商店面板：左 = 货架（点一下买入），右 = 背包（点一下卖出）。"""
+                     scroll: int = 0, tick: int = 0) -> Panel:
+    """商店面板：左 = 货架（点一下买入），右 = 背包（点一下卖出）。
+
+    ``tick`` 本页用不到，只为与 :func:`build_panel` 的派发签名保持一致
+    （角色面板要用它画"还剩几刻"）；宁可多一个不用参数，也不要在派发里
+    按面板名分支——那种分支迟早漏掉新加的面板。
+    """
     rect = _panel_rect(width, height)
     left, right = _columns(rect)
     panel = Panel(key="shop", title="商店", rect=rect, scroll=scroll)
@@ -317,8 +345,11 @@ def build_shop_panel(*, player: Entity, data: GameData,
 
 def build_warehouse_panel(*, player: Entity, data: GameData,
                           width: int = 1280, height: int = 720,
-                          scroll: int = 0) -> Panel:
-    """仓库面板：左 = 背包（点一下存入），右 = 仓库（点一下取出）。"""
+                          scroll: int = 0, tick: int = 0) -> Panel:
+    """仓库面板：左 = 背包（点一下存入），右 = 仓库（点一下取出）。
+
+    ``tick`` 本页不用，理由同 :func:`build_shop_panel`。
+    """
     rect = _panel_rect(width, height)
     left, right = _columns(rect)
     panel = Panel(key="warehouse", title="仓库", rect=rect, scroll=scroll)
@@ -370,9 +401,11 @@ BUILDERS = {
 
 
 def build_panel(key: str, *, player: Entity, data: GameData,
-                width: int = 1280, height: int = 720, scroll: int = 0) -> Panel:
+                width: int = 1280, height: int = 720, scroll: int = 0,
+                tick: int = 0) -> Panel:
     """按名字造面板（窗口层只认名字，不认构造函数）。"""
     builder = BUILDERS.get(key)
     if builder is None:
         raise KeyError(f"未知面板 {key!r}")
-    return builder(player=player, data=data, width=width, height=height, scroll=scroll)
+    return builder(player=player, data=data, width=width, height=height,
+                   scroll=scroll, tick=tick)

@@ -35,6 +35,7 @@ from mirsolo.actor.systems import (
     MovementSystem,
     RegenSystem,
     RespawnSystem,
+    RingEffectSystem,
     StatusSystem,
 )
 from mirsolo.combat.resolver import CombatContext, CombatResolver
@@ -166,6 +167,7 @@ def build_session(
     world.add_system(SkillSystem(game_data, ctx))
     world.add_system(MobChaseSystem())
     world.add_system(AiTargetSystem())
+    world.add_system(RingEffectSystem(ctx))
     world.add_system(MobAttackSystem(game_data))
     world.add_system(AttackSystem(ctx))
     world.add_system(death_system)

@@ -108,6 +108,96 @@ def gate_luck_sources(data=None) -> tuple[bool, str]:
                   + "，".join(f"{cid} {reach[cid]}" for cid in CLASSES) + "）")
 
 
+def gate_ring_effects(data=None) -> tuple[bool, str]:
+    """特戒（六枚戒指）：值域合规 + 六效齐备 + **每枚都真能打到**。
+
+    ``loader.validate`` 只查"键在不在"，这里查它查不了的三件事：
+
+    * **值域**——``bp`` 是万分比（``rand_int(1, 10000)``），写成 3000 就是每次都
+      麻痹；``permille`` 是千分比（1000 = 100%），写成 10000 会十倍代偿。
+      两类比率混用在本项目踩过一次，见 ``docs/数据口径.md``。
+    * **六效齐备**——少一种效果就是"文档里写着、游戏里拿不到"，
+      和幸运 9 凑不齐是同一类事故。
+    * **获取途径**——价格是 15 万起的特戒名义上也在商店货架里，
+      但真能拿到只有打 BOSS 这一条路；掉落表漏挂一枚，那枚等于不存在。
+    """
+    if data is None:
+        from mirsolo.data.loader import GameData
+
+        data = GameData.load()
+    from mirsolo.data.loader import RING_EFFECTS, RING_PARAM_KEYS
+
+    def _violations(effect: str, param: dict) -> list[str]:
+        """返回该效果参数的不合规说明（空列表 = 合规）。"""
+        out = []
+        try:
+            if effect == "paralysis":
+                if not 0 < int(param["bp"]) <= 10000:
+                    out.append("bp 必须是万分比 (0, 10000]")
+                if int(param["ticks"]) <= 0:
+                    out.append("ticks 必须为正")
+            elif effect == "protect":
+                if not 0 < int(param["permille"]) <= 1000:
+                    out.append("permille 必须是千分比 (0, 1000]")
+            elif effect == "revive":
+                if int(param["charges"]) <= 0:
+                    out.append("charges 必须为正")
+                if not 0 < int(param["hp_permille"]) <= 1000:
+                    out.append("hp_permille 必须是千分比 (0, 1000]")
+            elif effect == "teleport":
+                if param["map"] not in data.maps["maps"]:
+                    out.append(f"目标地图 {param['map']!r} 不存在")
+                if int(param["cooldown_ticks"]) <= 0:
+                    out.append("cooldown_ticks 必须为正")
+            elif effect == "invis":
+                if int(param["ticks"]) <= 0:
+                    out.append("ticks 必须为正")
+                if int(param["recover_ticks"]) < 0:
+                    out.append("recover_ticks 不能为负")
+            elif effect == "flame":
+                if int(param["power_permille"]) <= 0:
+                    out.append("power_permille 必须为正")
+        except (KeyError, TypeError, ValueError) as exc:
+            out.append(f"参数不可解析（{type(exc).__name__}）")
+        return out
+
+    implemented: dict[str, list[str]] = {}
+    bad: list[str] = []
+    for item_id, spec in data.items["items"].items():
+        effect = spec.get("ring_effect")
+        if effect is None:
+            continue
+        if effect not in RING_EFFECTS:
+            bad.append(f"{item_id}: 未知效果 {effect!r}")
+            continue
+        implemented.setdefault(effect, []).append(item_id)
+        param = spec.get("ring_param") or {}
+        omitted = [k for k in RING_PARAM_KEYS[effect] if k not in param]
+        if omitted:
+            bad.append(f"{item_id}: ring_param 缺 {omitted}")
+            continue
+        for note in _violations(effect, param):
+            bad.append(f"{item_id}({effect}): {note}")
+    if bad:
+        return False, "; ".join(bad)
+
+    unfinished = sorted(RING_EFFECTS - set(implemented))
+    if unfinished:
+        return False, f"以下特戒效果没有任何一枚戒指实现: {unfinished}"
+
+    reachable: set[str] = set()
+    for table in data.drops["drops"].values():
+        for group in table.get("groups", []):
+            for entry in group.get("entries", []):
+                reachable.add(entry.get("item"))
+    rings = {item_id for ids in implemented.values() for item_id in ids}
+    stranded = sorted(rings - reachable)
+    if stranded:
+        return False, f"以下戒指没有任何掉落来源: {stranded}"
+    return True, (f"六效齐备（{len(rings)} 枚戒指），参数值域合规，"
+                  f"且每枚都有 BOSS 掉落来源")
+
+
 def gate_tests_registered() -> tuple[bool, str]:
     """``tests/run_tests.MODULES`` ↔ ``tests/test_*.py`` 双向一致。"""
     from tests import run_tests
@@ -277,6 +367,7 @@ GATES = [
     ("data-files", "data/ 下八张表齐全且是合法 JSON", gate_data_files),
     ("map-bands", "地图等级带连续且传送图全连通", gate_map_bands),
     ("luck-sources", "幸运只来自武器/项链、值域合规、三职业都凑得到 9", gate_luck_sources),
+    ("ring-effects", "六枚特戒六效齐备、参数值域合规、每枚都有掉落来源", gate_ring_effects),
     ("tests-registered", "run_tests.MODULES ↔ tests/test_*.py 双向一致", gate_tests_registered),
     ("readme-commands", "README 里的 python -m 目标都真实可导入", gate_readme_commands),
     ("readme-tree-real", "README 项目结构里的路径都真实存在", gate_tree_real),
@@ -319,14 +410,20 @@ def _selfcheck() -> int:
 
     # 3) readme-tree-real：临时改 README 里的一个路径
     readme_path = ROOT / "README.md"
-    text = readme_path.read_text(encoding="utf-8")
+    readme_bytes = readme_path.read_bytes()
+    # ⚠️ 全程用 bytes 改写：``read_text``/``write_text`` 会在 Windows 上把 LF 翻成
+    # CRLF（默认 newline 转换）。本仓库的 README.md 是 LF，而 date 检测到这里
+    # 自己也读不出区别——但每次 --selfcheck 都会把整份 README 冲成 CRLF，
+    # 于是"换行风格"这件小事会变成下一次折腾时最难解释的那种脏改动。
+    text = readme_bytes.decode("utf-8")
     broken = text.replace("    determinism.py", "    does_not_exist.py", 1)
     if broken == text:
         print("  SKIP readme-tree-real 未找到可注入的路径")
     else:
-        readme_path.write_text(broken, encoding="utf-8")
+        newline = "\r\n" if b"\r\n" in readme_bytes else "\n"
+        readme_path.write_bytes(broken.replace("\n", newline).encode("utf-8"))
         ok, _ = gate_tree_real()
-        readme_path.write_text(text, encoding="utf-8")
+        readme_path.write_bytes(readme_bytes)
         if not ok:
             print("  ok   readme-tree-real 能拦住不存在的路径")
         else:
@@ -383,9 +480,47 @@ def _selfcheck() -> int:
         failures += 1
         print("  FAIL luck-sources 未拦住凑不到幸运 9 的数据")
 
+    # 8) ring-effects：把麻痹概率写成 30000（万分比写成百分比口径）
+    para = game.items["items"]["mabi_jiezhi"]
+    saved_bp = para["ring_param"]["bp"]
+    para["ring_param"]["bp"] = 30000
+    ok, detail = gate_ring_effects(game)
+    para["ring_param"]["bp"] = saved_bp
+    if not ok and "万分比" in detail:
+        print("  ok   ring-effects 能拦住越界的万分比（两类比率不许混用）")
+    else:
+        failures += 1
+        print("  FAIL ring-effects 未拦住越界的万分比")
+
+    # 9) ring-effects：删掉复活戒指那一项效果，必须报"六效不齐"
+    revive = game.items["items"].pop("fuhuo_jiezhi")
+    ok, detail = gate_ring_effects(game)
+    game.items["items"]["fuhuo_jiezhi"] = revive
+    if not ok and "revive" in detail:
+        print("  ok   ring-effects 能拦住缺一种特戒效果（不许只活在文档里）")
+    else:
+        failures += 1
+        print("  FAIL ring-effects 未拦住缺失的特戒效果")
+
+    # 10) ring-effects：把复活戒指从掉落表里摘掉，必须报"拿不到"
+    stashed_groups = []
+    for _mid, table in game.drops["drops"].items():
+        kept = [g for g in table.get("groups", [])
+                if not any(e.get("item") == "fuhuo_jiezhi" for e in g.get("entries", []))]
+        if len(kept) != len(table.get("groups", [])):
+            stashed_groups.append((table, list(table["groups"])))
+            table["groups"] = kept
+    ok, detail = gate_ring_effects(game)
+    for table, groups in stashed_groups:
+        table["groups"] = groups
+    if not ok and "掉落来源" in detail:
+        print("  ok   ring-effects 能拦住没有掉落来源的戒指")
+    else:
+        failures += 1
+        print("  FAIL ring-effects 未拦住没有掉落来源的戒指")
+
     print(f"\nselfcheck: {'PASS' if failures == 0 else f'{failures} 条门禁形同虚设'}")
     return 0 if failures == 0 else 1
-
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="mirsolo-verify", description="机械门禁")

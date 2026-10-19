@@ -14,12 +14,15 @@
 - **确定性**：纯整数随机流，同种子同结局；掉落与击杀序号绑定，读档重打不刷装
 - **零 GL 可测**：逻辑层无窗口单测，headless 冒烟 3 秒跑完 2000 秒游戏时间
 
-## 现状：P0 垂直切片（逻辑核已可跑）
+## 现状：P2 终局内容（攻城 / 赤月牛魔 / 运 9 / 特戒已完）
 
-已完成：战斗数学（物 / 魔 / 道三分野）、经验曲线与成长、组权重掉落、ECS 装配
-（Tick / 回血 / 冷却 / 选敌 / 攻击 / 死亡奖励 / 刷怪 共 7 系统）、headless 冒烟。
+已完成：战斗数学（物 / 魔 / 道三分野）、经验曲线与成长、组权重掉落、
+三职业 16 技、等距斜俯视 3D 表现层（含角色 / 商店 / 仓库面板）、
+沙巴克攻城战役、赤月与牛魔打宝图、幸运 9、特戒六枚、
+ECS 装配（15 系统含 Tick / 回血 / 状态 / 选敌 / 追击 / 特戒 / 结算 / 奖励 / 刷怪 / 传送 / 攻城）。
 
-未完成：等距斜俯视 3D 表现层、三职业全技能、背包界面、存档 UI、BOSS AI 分层。
+未完成：药水与续航（当前打宝靠"进图-捞一笔-回城"）、拍卖行、佣兵与图鉴、
+持久化存档（确定性已就位，读写层未做）。
 
 ## 快速开始
 
@@ -48,7 +51,7 @@ mirsolo/
       resolver.py       结算器（唯一允许改血的地方，发事件）
     actor/
       factory.py        实体工厂（按数据表造人/造怪）
-      systems.py        10 个 ECS 系统（回血→冷却→选敌→移动→技能→追击→出刀→结算→奖励→刷怪）
+      systems.py        11 个 ECS 系统（回血→冷却→选敌→移动→状态→追击→特戒→出刀→结算→奖励→刷怪）
     skills/
       engine.py         技能系统（学习门槛 / MP / 冷却 / 距离门 / 伤害治疗路由）
     progression/
@@ -56,6 +59,7 @@ mirsolo/
     items/
       drops.py          组权重掉落（seed + kill_index 决定，防 save-scum）
       equipment.py      穿脱装备 + 属性重算（裸身基准 + 装备加成，每次全量重算）
+      rings.py          特戒六枚规则层（麻痹/护身/复活/传送/隐身/火焰，纯函数 + 记账）
     economy/
       shop.py           商店买卖 + 仓库存取（回收价 1/3，买进卖出必亏）
     world/
@@ -69,7 +73,7 @@ mirsolo/
       hud.py            HP/MP/EXP 条、状态文本与攻城状态条（纯数据，无 GL）
       panels.py         角色/商店/仓库面板布局与命中测试（纯数据，无 GL）
       renderer.py       pyglet 2.1 ShaderProgram 渲染（地面网格 1 draw / 实例 1 draw）
-      app.py            窗口、输入（WASD/空格/滚轮/鼠标点面板）与固定步长循环
+      app.py            窗口、输入（WASD/空格/T 特戒/滚轮/鼠标点面板）与固定步长循环
     data/
       loader.py         八张表加载 + 结构校验 + 引用校验
     cli/
@@ -80,17 +84,18 @@ mirsolo/
     classes.json        三职业基础属性与成长（含 mc/sc）
     skills.json         技能表（三职业 16 技 + 技能书；P1-S2 起全部 kind 有行为）
     monsters.json       怪物表（23 种，AI 三档：passive/aggressive/elite）
-    items.json          装备 16 件（含 P2 赤月/牛魔终局 6 件 + 幸运项链 2 条）+ 技能书 16 本
+    items.json          装备 22 件（含 P2 赤月/牛魔终局 6 件 + 幸运项链 2 条 + 特戒 6 枚）+ 技能书 16 本
     drops.json          掉落表（组权重 + gold 区间）
     maps.json           地图与刷新/传送表（11 张，等级带 1-52 连续，含战役图 sabak）
     sieges.json         攻城战役表（波次/目标/守军/增援/奖励）
   docs/
     数据口径.md          逐表来源、近似标记与已知差异
     借鉴记账.md          借鉴对象 / 许可证 / 范围 / 禁区
-  scripts/verify.py     8 条机械门禁（含 --selfcheck 注入破坏自检）
+  scripts/verify.py     9 条机械门禁（含 --selfcheck 注入破坏自检）
   scripts/extend_p2_luck.py  幂等写幸运数据（终局武器 luck 7 + 两条幸运项链）
+  scripts/extend_p2_rings.py 幂等写特戒数据（六枚戒指 + 六只 BOSS 的专属掉落组）
   scripts/inject_check.py  注入验证：把生产代码改坏，确认回归真的会红
-  tests/run_tests.py    测试聚合 runner（15 模块）
+  tests/run_tests.py    测试聚合 runner（16 模块）
 ```
 
 ## 设计要点
@@ -123,14 +128,23 @@ mirsolo/
 （随机流不会因为换装备而错位），代价是两个端点之外的取值仍是线性近似，
 标记为 `CALIBRATE`（详见 `docs/数据口径.md` 的《幸运 9》一节）。
 
+**7. 特戒的数据形状：效果挂在物品上，接线只有一个入口。** 六枚戒指各自
+在 `data/items.json` 里声明 `ring_effect` + `ring_param`（效果名与参数键由 loader
+登记，`validate()` 强制齐全），代码里不写"如果是麻痹戒指就……"这种分支表。
+六条效果按**触发时机**分三类：挨打类（护身/复活）挂在
+`CombatResolver._damage`——那是全项目唯一允许改血的地方，而且顺序被钉死为
+「魔法盾 → 护身 → 复活判定 → `take()`」；出手类（麻痹/火焰/破隐）挂在 `_apply`
+之后；主动类（传送）走 `T` 键。三者的随机流都带 `ring:` 前缀，戴上或摘下戒指
+不会挪动主伤害流的位置（详见 `docs/数据口径.md` 的《特戒六枚》一节）。
+
 ## 测试与验收
 
 ```bat
-python -m tests.run_tests              :: 15 个模块，206 项无窗口单测
+python -m tests.run_tests              :: 16 个模块，229 项无窗口单测
 python -m mirsolo.cli.smoke --ticks 3000   :: headless 冒烟（含确定性复跑）
 python -m mirsolo.cli.play --level 50 --gear --siege sabak --shot shots\siege.png
                                        :: 攻城验收：开窗即开战，顶部战役状态条
-python scripts\verify.py               :: 8 条机械门禁（<1 秒）
+python scripts\verify.py               :: 9 条机械门禁（<1 秒）
 python scripts\verify.py --list        :: 只看门禁清单
 python scripts\verify.py --verbose     :: 每条门禁的证据
 python scripts\verify.py --selfcheck   :: 注入破坏，证明门禁拦得住
@@ -147,6 +161,7 @@ python scripts\verify.py --selfcheck   :: 注入破坏，证明门禁拦得住
 | `readme-commands` | README 里每条 `python -m` 目标都真实可导入 |
 | `readme-tree-real` | README 项目结构里的路径都真实存在 |
 | `luck-sources` | 幸运只来自武器/项链、值域合规、且**三个职业各自**都凑得到 9 |
+| `ring-effects` | 六枚特戒六效齐备、参数值域合规、每枚都有掉落来源 |
 | `package-imports` | `mirsolo/` 下每个模块都能 import |
 
 ## 路线图
@@ -155,7 +170,7 @@ python scripts\verify.py --selfcheck   :: 注入破坏，证明门禁拦得住
 |------|------|------|
 | P0 | 战士垂直切片：比奇省外围 + 矿洞、6 怪、8 装、练到 20 级 | 逻辑核 ✅ / 表现层 ✅ |
 | P1 | 三职业全技能、地图带（蜈蚣洞→祖玛）、沃玛/祖玛 BOSS、商店仓库、技能熟练度 | ✅ |
-| P2 | 沙巴克攻城战役、赤月/牛魔、特戒与运 9、拍卖行、佣兵与图鉴 | 攻城 ✅ / 赤月牛魔 ✅ / 运 9 ✅ / 其余 ⬜ |
+| P2 | 沙巴克攻城战役、赤月/牛魔、特戒与运 9、拍卖行、佣兵与图鉴 | 攻城 ✅ / 赤月牛魔 ✅ / 运 9 ✅ / 特戒 ✅ / 拍卖行、佣兵图鉴 ⬜ |
 
 ## 许可
 

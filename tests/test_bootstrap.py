@@ -30,7 +30,8 @@ def test_session_has_core_services():
         expected = {
             "TickSystem", "RegenSystem", "CooldownSystem", "MovementSystem",
             "SkillSystem", "StatusSystem", "MobChaseSystem", "AiTargetSystem",
-            "MobAttackSystem", "AttackSystem", "DeathRewardSystem", "RespawnSystem",
+            "RingEffectSystem", "MobAttackSystem", "AttackSystem",
+            "DeathRewardSystem", "RespawnSystem",
             "SiegeSystem", "PortalSystem",
         }
         names = {type(s).__name__ for s in session.world.systems}
@@ -43,6 +44,10 @@ def test_session_has_core_services():
         assert order.index("AiTargetSystem") < order.index("MobChaseSystem") < order.index("MobAttackSystem")
         assert order.index("MobAttackSystem") < order.index("AttackSystem")
         assert order.index("AttackSystem") < order.index("DeathRewardSystem")
+        # 特戒结隐要在出刀之前读到"本 tick 有没有出手"，又必须在 AI 走位之后
+        # 才算得准——夹在两者之间，挪到任一侧都会在重载测试里变红
+        assert order.index("AiTargetSystem") < order.index("RingEffectSystem")
+        assert order.index("RingEffectSystem") < order.index("AttackSystem")
         # 战役推进在伤害结算之后（否则读到"打之前"的血量），补刷之前
         assert order.index("DeathRewardSystem") < order.index("SiegeSystem")
         assert order.index("SiegeSystem") < order.index("RespawnSystem")

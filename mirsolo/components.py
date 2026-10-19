@@ -260,6 +260,44 @@ class Invisible(Component):
 
 
 @dataclass
+class Paralysis(Component):
+    """麻痹：``until_tick`` 之前**不能移动、不能出手**（玩家与怪同一套）。
+
+    为什么是独立组件而不是某个 ``is_stunned`` 标记：定身要同时掐掉移动与出手
+    两个入口（``MovementSystem`` / ``MobChaseSystem`` / ``MobAttackSystem`` /
+    ``AttackSystem``），散在各处的 ``if not paralyzed`` 迟早漏一个——
+    而漏一个就等于"麻痹了却还在还手"，比没有麻痹更费解。
+    """
+
+    until_tick: int = -1
+    source: int | None = None  # 施术者实体 id（给以后的仇恨/归属归因留位置）
+
+    def active(self, tick: int) -> bool:
+        return self.until_tick > tick
+
+    def remaining(self, tick: int) -> int:
+        return max(0, self.until_tick - tick)
+
+
+@dataclass
+class RingState(Component):
+    """特戒的运行时记账（与装备槽解耦）。
+
+    为什么不直接挂在 ``Loadout`` 上：``recompute`` 每次穿/脱都会把属性
+    **全量重算**一遍（这是对的，见 equipment 模块 docstring），而"复活戒指还剩
+    几次"属于跨次数的账本——跟着 recompute 重算就等于每次换装备白送一次复活。
+
+    ``charges`` 按 ``item_id`` 记账而不是按"物品实例"：本项目的背包是
+    ``item_id -> 数量``，没有实例 id，所以"同款两枚戒指"共用额度。
+    这是单机化的已知取舍（记在 docs/数据口径.md）。
+    """
+
+    charges: dict[str, int] = field(default_factory=dict)
+    cloak_at: int = -1               # 出手破隐后允许重新结隐的最早刻
+    last_travel_tick: int = -10**9   # 传送戒指上次发动的刻（算冷却用）
+
+
+@dataclass
 class SiegeObjective(Component):
     """攻城目标（城门 / 内城门 / 旗台）。
 

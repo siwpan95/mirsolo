@@ -4,10 +4,13 @@
 
 | priority | 系统 | 职责 |
 |---:|---|---|
+| 5 | ``RegenSystem`` | 每刻回血回蓝（静止加成，战斗中断） |
 | 10 | ``CooldownSystem`` | 每帧递减技能冷却 |
 | 11 | ``AiTargetSystem`` | 给主动怪选目标（同阵营跳过、超脱战距离放弃） |
 | 12 | ``MovementSystem`` | 玩家八向网格移动（读 move_intent，按刻落格） |
+| 13 | ``StatusSystem`` | 持续状态结算（中毒掉血 / 隐身到期） |
 | 14 | ``MobChaseSystem`` | 怪物追击（切比雪夫，八向一格） |
+| 20 | ``RingEffectSystem`` | 特戒持续效果（隐身戒指结隐；摘下即自然失效） |
 | 28 | ``MobAttackSystem`` | 相邻怪按自身攻速排队出刀 |
 | 30 | ``AttackSystem`` | 消费攻击意图队列 → 调 ``CombatResolver`` 结算 |
 | 40 | ``DeathRewardSystem`` | 结算死亡奖励：经验 + 掉落 + 金币 |
@@ -30,14 +33,18 @@ from mirsolo.components import (
     Cooldowns,
     Identity,
     Invisible,
+    Loadout,
+    Paralysis,
     Poison,
     Position,
     Progression,
+    RingState,
     SummonOwner,
     Vitals,
     Wallet,
 )
 from mirsolo.determinism import Rng
+from mirsolo.items import rings
 from mirsolo.items.drops import roll_drops
 from mirsolo.items.equipment import recompute
 from mirsolo.progression.exp import add_exp, apply_growth
@@ -100,6 +107,8 @@ class MovementSystem(System):
         pos = player.get(Position)
         if pos is None:
             return
+        if _is_paralyzed(player, tick):
+            return  # 被麻痹：WASD 一样不动（不是"走半格"，那样看不出是麻痹）
         map_id = world.get_data("current_map")
         data = world.get_data("data")
         spec = data.maps["maps"].get(map_id or "", {}) if data is not None else {}
@@ -127,6 +136,8 @@ class MobChaseSystem(System):
         for mob in world.each(AiState, Position):
             state = mob.get(AiState)
             pos = mob.get(Position)
+            if _is_paralyzed(mob, tick):
+                continue  # 被麻痹的怪钉在原地（但仍能被打、仍会计仇恨）
             goal: Position | None = None
             if state.target_id is not None:
                 target = world.get_entity(state.target_id)
@@ -174,6 +185,8 @@ class MobAttackSystem(System):
             state = mob.get(AiState)
             if state.target_id is None:
                 continue
+            if _is_paralyzed(mob, tick):
+                continue  # 定身期间不还手（意图压根不入队，见 AttackSystem 注释）
             target = world.get_entity(state.target_id)
             if target is None:
                 continue
@@ -288,6 +301,52 @@ def _is_invisible(entity: Entity, tick: int) -> bool:
     return buff is not None and buff.until_tick > tick
 
 
+class RingEffectSystem(System):
+    """特戒的持续效果 —— 目前只有隐身戒指的"反复结隐"。
+
+    priority 20 = AI（11-14）之后、攻击（30）之前：本 tick 内谁出了手、
+    谁被破隐已经记在 :class:`RingState` 里，此刻读到的是完整的。
+
+    为什么写成"每刻刷新"而不是"攻击时顺手结一次"：持续型 buff 必须有
+    **单一刷新点**。分散实现的话，摘掉戒指后残留一层隐身只是时间问题；
+    写在这里，摘掉戒指的效果就是"下一刻起自然不再续"。
+
+    另一个容易漏的点：这里必须按 ``Loadout`` 遍历而不是按玩家实体，
+    否则"给怪也穿上戒指做测试"的路径和真机的路径会长成两个样。
+    """
+
+    priority = 20
+
+    def __init__(self, ctx: CombatContext) -> None:
+        self.ctx = ctx
+        self.resolver = CombatResolver(ctx)
+
+    def update(self, world: World, dt: float) -> None:
+        tick = int(world.get_data(KEY_TICK, 0))
+        data = world.get_data("data")
+        if data is None:
+            return
+        self.ctx.tick = tick
+        for entity in world.each(Loadout):
+            ticks = rings.can_cloak(data, entity, tick)
+            if ticks is None:
+                continue
+            vitals = entity.get(Vitals)
+            if vitals is not None and not vitals.alive:
+                continue
+            self.resolver.apply_invisible(entity, ticks=ticks)
+
+
+def _is_paralyzed(entity: Entity, tick: int) -> bool:
+    """定身判定：截止刻之前一律不能动、不能出手。
+
+    与隐身一个写法——集中在这里，四个消费点（移动/追击/排队/结算）都调它，
+    不会出现"移动系统知道麻痹了、攻击系统不知道"这种半残实现。
+    """
+    buff = entity.get(Paralysis)
+    return buff is not None and buff.until_tick > tick
+
+
 class StatusSystem(System):
     """状态跳伤：施毒的每一跳都走 ``CombatResolver``（因此过护盾、能致死）。
 
@@ -340,12 +399,20 @@ class AttackSystem(System):
             return
         self.ctx.tick = int(world.get_data(KEY_TICK, 0))
         ready: list[dict] = []
+        dropped: list[dict] = []
+        tick = self.ctx.tick
         for intent in intents:
             attacker = intent["attacker"]
             defender = intent["defender"]
             vitals = defender.get(Vitals)
             atk_vitals = attacker.get(Vitals)
             if vitals is None or atk_vitals is None or not vitals.alive or not atk_vitals.alive:
+                continue
+            if _is_paralyzed(attacker, tick):
+                # 定身期间的出手**作废**而不是排队等着：留着的话解除那一刻会把
+                # 攒下的刀一次全打出来，玩家看着像"卡了一下突然爆发"。
+                # 注意与上面"死亡目标"的处理不同——那条会保留意图。
+                dropped.append(intent)
                 continue
             kind = intent.get("kind", "physical")
             power = int(intent.get("power_permille", 1000))
@@ -357,7 +424,7 @@ class AttackSystem(System):
                 self.resolver.physical(attacker, defender, power_permille=power)
             ready.append(intent)
         # 消费已处理意图（保留未处理的，例如死亡目标）
-        handled = {id(i) for i in ready}
+        handled = {id(i) for i in ready} | {id(i) for i in dropped}
         world.set_data(KEY_INTENTS, [i for i in intents if id(i) not in handled])
 
 
