@@ -146,6 +146,23 @@ class Loadout(Component):
 
 
 @dataclass
+class Wear(Component):
+    """装备磨损账本：``item_id -> 已磨损点数``（P3-S1）。
+
+    ⚠️ 为什么不挂在 :class:`Loadout` 上：和 ``RingState`` 同一个理由——
+    ``Loadout.slots`` 是"当前穿着"的真相，每次穿脱都会被 ``recompute``
+    全量重算；而磨损是**跨次数的累计账本**，跟着重算就等于每穿脱一次免费修一次。
+
+    为什么按 ``item_id`` 而不是按"第几件实物"记：背包是堆叠的
+    （``item_id -> 数量``），没有实物实例 id。按 id 记的语义是"这一类装备里
+    最破的那件"，于是"打废了换一把同 id 的"洗不掉磨损——只有**花钱**
+    （修理 / 卖掉再买一件新的）才洗得掉，正好堵住免费满耐久的空子。
+    """
+
+    points: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
 class Bag(Component):
     """背包：``item_id -> 数量`` 的有序字典（P0 不做堆叠上限）。"""
 

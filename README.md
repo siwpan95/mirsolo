@@ -19,10 +19,11 @@
 已完成：战斗数学（物 / 魔 / 道三分野）、经验曲线与成长、组权重掉落、
 三职业 16 技、等距斜俯视 3D 表现层（角色 / 佣兵 / 图鉴 / 拍卖行 / 商店 / 仓库六个面板）、
 沙巴克攻城战役、赤月与牛魔打宝图、幸运 9、特戒六枚、拍卖行、佣兵与图鉴、
+装备持久度与修理、
 ECS 装配（18 个系统：Tick / 回血 / 拍卖 / 佣兵到期 / 冷却 / 状态 / 移动 / 技能 / 追击 /
 选敌 / 特戒 / 出刀 / 结算 / 死亡奖励 / 图鉴 / 刷怪 / 攻城 / 传送）。
 
-未完成：药水与续航（当前打宝靠"进图-捞一笔-回城"）、
+未完成（P3 起的欠账）：死亡惩罚、药水与续航（当前打宝靠"进图-捞一笔-回城"）、
 持久化存档（确定性已就位，读写层未做）。
 
 ## 快速开始
@@ -62,6 +63,7 @@ mirsolo/
       exp.py            经验查表 + 连升结转 + 属性成长（含 mc/sc）
     items/
       drops.py          组权重掉落（seed + kill_index 决定，防 save-scum）
+      wear.py           装备磨损与修理（命中记账 / 磨穿失效 / 修理费 < 买新价）
       equipment.py      穿脱装备 + 属性重算（裸身基准 + 装备加成，每次全量重算）
       rings.py          特戒六枚规则层（麻痹/护身/复活/传送/隐身/火焰，纯函数 + 记账）
     economy/
@@ -162,18 +164,28 @@ mirsolo/
 之后；主动类（传送）走 `T` 键。三者的随机流都带 `ring:` 前缀，戴上或摘下戒指
 不会挪动主伤害流的位置（详见 `docs/数据口径.md` 的《特戒六枚》一节）。
 
+**10. 磨损按 item_id 记账，让"换一把洗耐久"走不通。** 没有实物实例 id
+（背包是堆叠的），所以磨损记在 `Wear.points[item_id]` 上——语义是"这一类装备里
+最破的那件"：打废了换一把同款，磨损照旧继承，想洗掉只有**花钱**两条路
+（修理 / 卖掉再买一件新的，两者都在入手或修好时重置账目）。
+磨穿不给属性但**仍占负重**（不然"打废装备"反而成了免费减重）；
+全废修理费 = 买入价 × 300‰ × 磨损比例，由门禁 `wear-and-repair` 钉住
+"修理必须比买新的便宜"。磨损的随机流 `wear:strike:` / `wear:hit:` 独立于主伤害流，
+有测试断言"关掉磨损后同一场架的伤害序列一字不差"
+（详见 `docs/数据口径.md` 的《装备持久度与修理》一节）。
+
 ## 测试与验收
 
 ```bat
-python -m tests.run_tests              :: 19 个模块，269 项无窗口单测
+python -m tests.run_tests              :: 20 个模块，283 项无窗口单测
 python -m mirsolo.cli.smoke --ticks 3000   :: headless 冒烟（含确定性复跑）
 python -m mirsolo.cli.play --level 50 --gear --siege sabak --shot shots\siege.png
                                        :: 攻城验收：开窗即开战，顶部战役状态条
-python scripts\verify.py               :: 12 条机械门禁（<1 秒）
+python scripts\verify.py               :: 13 条机械门禁（<1 秒）
 python scripts\verify.py --list        :: 只看门禁清单
 python scripts\verify.py --verbose     :: 每条门禁的证据
 python scripts\verify.py --selfcheck   :: 注入破坏，证明门禁拦得住
-python scripts\inject_check.py         :: 42 处注入，全部要能把测试打红
+python scripts\inject_check.py         :: 47 处注入，全部要能把测试打红
 ```
 
 门禁清单：
@@ -191,6 +203,7 @@ python scripts\inject_check.py         :: 42 处注入，全部要能把测试�
 | `auction-book` | 38 件可交易物品都能寄卖，且**底价高于商店回收价**（否则拍卖行白做） |
 | `merc-hire` | 佣兵门槛练得到、价格随门槛递增、全局上限**真的够得着**（不许是死约束） |
 | `codex-coverage` | 图鉴覆盖的每一种怪都有掉落来源（不许出现"无掉落"行） |
+| `wear-and-repair` | 每件装备 `durability` 为正、修满 < 买入价、期望寿命落在 100-5000 次命中 |
 | `package-imports` | `mirsolo/` 下每个模块都能 import |
 
 ## 路线图

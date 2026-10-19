@@ -13,8 +13,10 @@ from __future__ import annotations
 
 from allin_engine import Entity
 
-from mirsolo.components import Bag, Body, Loadout, Warehouse, Wallet
+from mirsolo.components import Bag, Body, Loadout, Warehouse, Wallet, Wear
 from mirsolo.data.loader import GameData
+from mirsolo.items import wear
+from mirsolo.items.equipment import recompute
 
 #: 回收价 = 买入价 // 该系数（原版卖掉装备大约只值三分之一）
 SELL_DIVISOR = 3
@@ -83,6 +85,9 @@ def buy(entity: Entity, data: GameData, item_id: str, count: int = 1) -> dict:
 
     wallet.gold -= cost
     bag.add(item_id, count)
+    # 新入手的就是**全新**的：磨损账按 item_id 记，不重置的话
+    # "打废一把、卖掉、再买一把同款的"拿回来还是废的（钱白花了还没修好）。
+    wear.reset(entity.get(Wear), item_id)
     return {"item": item_id, "count": count, "paid": cost, "gold": wallet.gold}
 
 
@@ -102,6 +107,52 @@ def sell(entity: Entity, data: GameData, item_id: str, count: int = 1) -> dict:
     bag.remove(item_id, count)
     wallet.gold += income
     return {"item": item_id, "count": count, "earned": income, "gold": wallet.gold}
+
+
+def repair(entity: Entity, data: GameData, item_id: str) -> dict:
+    """修好**一件**装备（磨损清零，P3-S1）。
+
+    只在"真的有磨损"时收钱：全新装备不给修理按钮点（面板会置灰）。
+    """
+    spec = _spec(data, item_id)
+    if spec.get("kind", "equip") != "equip":
+        raise TradeError("not_equipment", f"{spec.get('name', item_id)} 不是装备")
+    wear_book = entity.get(Wear)
+    wallet = entity.get(Wallet)
+    if wallet is None:
+        raise TradeError("missing_components", "缺少 Wallet 组件")
+    cost = wear.repair_cost(data, wear_book, item_id)
+    if cost <= 0:
+        raise TradeError("nothing_to_repair", f"{spec.get('name', item_id)} 还是好的")
+    if wallet.gold < cost:
+        raise TradeError("no_gold", f"金币不足：需要 {cost}，身上 {wallet.gold}")
+    wallet.gold -= cost
+    wear.reset(wear_book, item_id)
+    recompute(entity, data)  # 修好了属性要立刻回来
+    return {"item": item_id, "paid": cost, "gold": wallet.gold}
+
+
+def repair_all(entity: Entity, data: GameData) -> dict:
+    """一次性修好身上/背包/仓库里**所有有磨损**的装备。
+
+    整笔结算、不做"钱不够就先修一部分"：本模块从第一天起就不做悄悄扣一半
+    这种模糊处理，钱不够就是不够，面板会把按钮置灰并写明差多少。
+    """
+    rows = wear.repair_rows(data, entity)
+    if not rows:
+        raise TradeError("nothing_to_repair", "没有需要修理的装备")
+    wallet = entity.get(Wallet)
+    if wallet is None:
+        raise TradeError("missing_components", "缺少 Wallet 组件")
+    total = sum(int(row["cost"]) for row in rows)
+    if wallet.gold < total:
+        raise TradeError("no_gold", f"金币不足：需要 {total}，身上 {wallet.gold}")
+    wear_book = entity.get(Wear)
+    wallet.gold -= total
+    for row in rows:
+        wear.reset(wear_book, row["item"])
+    recompute(entity, data)
+    return {"items": [row["item"] for row in rows], "paid": total, "gold": wallet.gold}
 
 
 def deposit(entity: Entity, data: GameData, item_id: str, count: int = 1) -> dict:

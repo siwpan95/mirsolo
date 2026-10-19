@@ -40,6 +40,7 @@ MODULES = [
     "test_rings",
     "test_auction",
     "test_mercenary",
+    "test_wear",
     "test_codex",
 ]
 

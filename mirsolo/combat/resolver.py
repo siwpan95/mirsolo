@@ -21,15 +21,18 @@ from mirsolo.components import (
     Attributes,
     Identity,
     Invisible,
+    Loadout,
     Paralysis,
     Poison,
     Shield,
     SiegeObjective,
     Vitals,
+    Wear,
 )
 from mirsolo.data.loader import GameData
 from mirsolo.determinism import Rng
-from mirsolo.items import rings
+from mirsolo.items import rings, wear
+from mirsolo.items.equipment import recompute
 from mirsolo.items.rings import EVT_PARALYSIS
 
 EVT_HIT = "combat:hit"
@@ -162,6 +165,7 @@ class CombatResolver:
             self._damage(attacker, defender, outcome.damage, kind,
                          rolls=dict(outcome.rolls))
             self._ring_strike(attacker, defender)
+            self._wear_strike(attacker, defender)
         elif not outcome.hit and self.ctx.bus is not None:
             self.ctx.bus.emit(
                 EVT_MISS,
@@ -202,6 +206,44 @@ class CombatResolver:
         extra = rings.flame_damage(data, attacker, flame_rng)
         if extra > 0:
             self._damage(attacker, defender, extra, "flame")
+
+    def _wear_strike(self, attacker: Entity, defender: Entity) -> None:
+        """出手磨武器、挨打磨防具（P3-S1）。
+
+        两条**独立**的账、两条**独立**的流：武器只在挥出去时磨，防具只在挨打时磨。
+        流名只带"自己是谁 + 第几刻"，所以谁先出手都不会挪动别人的流
+        （与幸运 9 / 特戒同一条回放纪律）。
+
+        只有**刚好磨穿**才重算属性：磨穿那一刻加成要立刻消失，
+        否则玩家会拿着"属性还在但面板写着已损坏"的装备。
+        """
+        data = self.ctx.game_data
+        if data is None:
+            return
+        tick = int(self.ctx.tick)
+
+        atk_loadout = attacker.get(Loadout)
+        weapon = atk_loadout.slots.get("weapon") if atk_loadout is not None else None
+        if weapon:
+            rng = Rng(self.ctx.seed, f"wear:strike:{attacker.id}@{tick}")
+            if wear.roll_strike(data, attacker.get(Wear), weapon, rng):
+                if wear.is_broken(data, attacker.get(Wear), weapon):
+                    recompute(attacker, data)
+
+        def_loadout = defender.get(Loadout)
+        def_wear = defender.get(Wear)
+        if def_loadout is None or def_wear is None:
+            return  # 怪物没有 Wear 账本，不磨（也省一条流）
+        slot_rng = Rng(self.ctx.seed, f"wear:hit:{defender.id}@{tick}")
+        slot = wear.pick_armor_slot(def_loadout, slot_rng)
+        if slot is None:
+            return
+        item_id = def_loadout.slots.get(slot)
+        if not item_id:
+            return
+        if wear.roll_strike(data, def_wear, item_id, slot_rng):
+            if wear.is_broken(data, def_wear, item_id):
+                recompute(defender, data)
 
     # ── 公共面 ──────────────────────────────────────
 

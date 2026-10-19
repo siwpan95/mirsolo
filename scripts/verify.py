@@ -461,6 +461,61 @@ def gate_map_bands(data=None) -> tuple[bool, str]:
     return True, f"{len(maps)} 张图（含 {len(campaign_maps)} 张战役图），1-{top} 级连续且全连通"
 
 
+def gate_wear_and_repair(data=None) -> tuple[bool, str]:
+    """磨损与修理：``durability`` 真在用、修理比买新的便宜、寿命落在可玩区间。
+
+    三条都是"数值填错却没人发现"的典型：
+
+    * ``durability <= 0`` → 这件装备一穿就废（顺带把修理费算成除零）；
+    * **全废修理费 >= 买入价** → "卖掉再买一把"永远更划算，修理按钮是摆设；
+    * 期望寿命（磨穿要挨多少次命中）太短 → 打两只怪就得回城修；
+      太长 → 一辈子不用管，这个系统等于没做。
+    """
+    if data is None:
+        from mirsolo.data.loader import GameData
+
+        data = GameData.load()
+    from mirsolo.components import Wear
+    from mirsolo.items import wear
+
+    items = {iid: spec for iid, spec in data.items["items"].items()
+             if spec.get("kind", "equip") == "equip"}
+    if not items:
+        return False, "装备表是空的"
+
+    bad = []
+    for item_id, spec in sorted(items.items()):
+        total = int(spec.get("durability", 0) or 0)
+        if total <= 0:
+            bad.append(f"{item_id} durability 必须为正（现在是 {total}）")
+            continue
+        wrecked = Wear(points={item_id: total})
+        cost = wear.repair_cost(data, wrecked, item_id)
+        price = max(1, int(spec.get("price", 1)))
+        if cost >= price:
+            bad.append(f"{item_id} 修满要 {cost} 金，比买一把新的 {price} 金还贵")
+        if cost <= 0:
+            bad.append(f"{item_id} 全废了修理费却是 0（修理白嫖）")
+
+    bp = wear.WEAR_BP_PER_HIT
+    if not 0 < bp < 10000:
+        bad.append(f"WEAR_BP_PER_HIT={bp} 不在万分比区间内")
+    else:
+        # 期望寿命（命中次数）= durability ÷ (bp / 10000)
+        lives = [int(spec.get("durability", 0)) * 10000 // bp for spec in items.values()]
+        if min(lives) < 100:
+            bad.append(f"最短命的装备只撑 {min(lives)} 次命中（< 100，打两只怪就得修）")
+        if max(lives) > 5000:
+            bad.append(f"最长命的装备要 {max(lives)} 次命中（> 5000，一辈子不用修）")
+
+    if bad:
+        return False, "; ".join(bad)
+    shortest = min(int(spec.get("durability", 0)) * 10000 // bp for spec in items.values())
+    longest = max(int(spec.get("durability", 0)) * 10000 // bp for spec in items.values())
+    return True, (f"{len(items)} 件装备 durability 8-30，修满 < 买入价，"
+                  f"期望寿命 {shortest}-{longest} 次命中")
+
+
 GATES = [
     ("data-integrity", "九张数据表的引用完整性（掉落/刷新/技能职业/攻城可解析）", gate_data_integrity),
     ("data-files", "data/ 下九张表齐全且是合法 JSON", gate_data_files),
@@ -470,6 +525,8 @@ GATES = [
     ("auction-book", "装备/技能书都可寄卖，且底价高于商店回收价", gate_auction_book),
     ("merc-hire", "佣兵门槛练得到、价格递增、全局上限真在起作用", gate_merc_hire),
     ("codex-coverage", "图鉴覆盖的每一种怪都有掉落来源", gate_codex_coverage),
+    ("wear-and-repair", "装备耐久在用、修理比买新的便宜、寿命落在可玩区间",
+     gate_wear_and_repair),
     ("tests-registered", "run_tests.MODULES ↔ tests/test_*.py 双向一致", gate_tests_registered),
     ("readme-commands", "README 里的 python -m 目标都真实可导入", gate_readme_commands),
     ("readme-tree-real", "README 项目结构里的路径都真实存在", gate_tree_real),
@@ -679,6 +736,30 @@ def _selfcheck() -> int:
     else:
         failures += 1
         print(f"  FAIL codex-coverage 未拦住没有掉落来源的怪（{detail}）")
+
+    # 16) wear-and-repair：把木剑 durability 写成 0，必须报"必须为正"
+    _saved_dur = game.items["items"]["mujian"]["durability"]
+    game.items["items"]["mujian"]["durability"] = 0
+    ok, detail = gate_wear_and_repair(game)
+    game.items["items"]["mujian"]["durability"] = _saved_dur
+    if not ok and "必须为正" in detail:
+        print("  ok   wear-and-repair 能拦住 durability=0 的装备")
+    else:
+        failures += 1
+        print(f"  FAIL wear-and-repair 未拦住 durability=0（{detail}）")
+
+    # 17) wear-and-repair 的另一半：把修理倍率抬到 150%，修理按钮就成了摆设
+    from mirsolo.items import wear as _wear
+
+    _saved_rate = _wear.REPAIR_PERMILLE
+    _wear.REPAIR_PERMILLE = 1500
+    ok, detail = gate_wear_and_repair(game)
+    _wear.REPAIR_PERMILLE = _saved_rate
+    if not ok and "买一把新的" in detail:
+        print("  ok   wear-and-repair 能拦住修理比买新的还贵（按钮不能是摆设）")
+    else:
+        failures += 1
+        print(f"  FAIL wear-and-repair 未拦住修理贵过买新（{detail}）")
 
     print(f"\nselfcheck: {'PASS' if failures == 0 else f'{failures} 条门禁形同虚设'}")
     return 0 if failures == 0 else 1

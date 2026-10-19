@@ -36,11 +36,13 @@ from mirsolo.components import (
     Vitals,
     Wallet,
     Warehouse,
+    Wear,
 )
 from mirsolo.actor import codex, mercenary
 from mirsolo.data.loader import SLOTS, GameData
 from mirsolo.economy import auction
 from mirsolo.economy.shop import buy_price, sell_price
+from mirsolo.items import wear
 from mirsolo.items.rings import EFFECT_LABELS, charges_left, ring_effect
 from mirsolo.presentation.hud import Rect, TextAnchor
 
@@ -177,6 +179,20 @@ def _item_label(data: GameData, item_id: str) -> str:
     return str(data.items["items"].get(item_id, {}).get("name", item_id))
 
 
+def _wear_hint(data: GameData, player: Entity, item_id: str, hint: str) -> str:
+    """在装备行尾追加磨损（P3-S1）。
+
+    磨穿的**必须**标出来：不然玩家只看到攻击力掉了，却不知道是装备坏了。
+    全新（1000‰）不追加，免得每行都挂一个"磨损 0%"。
+    """
+    left = wear.left_permille(data, player.get(Wear), item_id)
+    if left >= 1000:
+        return hint
+    if wear.is_broken(data, player.get(Wear), item_id):
+        return f"{hint}　已损坏（无加成）"
+    return f"{hint}　磨损 {(1000 - left) // 10}%"
+
+
 def _stat_hint(spec: dict) -> str:
     """装备的一行摘要（右侧详情列）。没有加成的装备显示"无加成"。"""
     parts = []
@@ -230,6 +246,8 @@ def build_character_panel(*, player: Entity, data: GameData,
         # 动作负载是**槽名**而不是 item_id：脱装备按槽定位，
         # 按 item_id 脱会把"同款两件穿在不同槽"搞混
         hint = _stat_hint(data.items["items"][item_id]) if item_id else "空槽"
+        if item_id:
+            hint = _wear_hint(data, player, item_id, hint)
         entries.append(("unequip", slot, f"{SLOT_NAMES[slot]}：{name}",
                         hint, bool(item_id)))
     gear_rows, gear_max, gear_notes = _fill_rows(rect, left, entries, scroll=scroll)
@@ -347,11 +365,26 @@ def build_shop_panel(*, player: Entity, data: GameData,
                                      (0.95, 0.86, 0.55, 1.0)))
     panel.scroll_max = max(shop_max, sell_max)
 
-    panel.texts.append(TextAnchor(f"金币 {gold}", left.x + 4, left.y + 24, 11,
+    # 修理：做成面板底部一行可点条目（与拍卖行「报价档」同一套做法），
+    # 而不是塞进某一栏——两栏都已经排满，插进去就要挤掉一行货架。
+    # 没有磨损时**整行不出现**，免得每页都挂着一个点了报错的按钮。
+    total = wear.total_repair_cost(data, player)
+    if total > 0:
+        able = gold >= total
+        text = f"修理全部：{total} 金"
+        if not able:
+            text += f"（还差 {total - gold} 金）"
+        panel.rows.append(Row(
+            rect=Rect(rect.x + COLUMN_GAP, rect.y + 8, rect.w - 2 * COLUMN_GAP, ROW_HEIGHT),
+            text=text, action="repair_all", item="", detail="", enabled=able))
+
+    # 页脚比别的面板抬 10px：这一页底部多了一行可点条目（rect.y + 8 起 22 高），
+    # 不抬的话金币与关闭提示压在那一行上（拍卖行版式实测踩过同一个坑）。
+    panel.texts.append(TextAnchor(f"金币 {gold}", left.x + 4, left.y + 34, 11,
                                   (0.95, 0.86, 0.55, 1.0)))
     panel.texts.extend(shop_notes)
     panel.texts.extend(sell_notes)
-    panel.texts.append(TextAnchor("B 关闭　滚轮翻页", rect.x + rect.w - 8, rect.y + 8,
+    panel.texts.append(TextAnchor("B 关闭　滚轮翻页", rect.x + rect.w - 8, rect.y + 34,
                                   10, (0.6, 0.62, 0.66, 1.0), anchor_x="right"))
     return panel
 

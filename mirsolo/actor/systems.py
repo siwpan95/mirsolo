@@ -49,11 +49,13 @@ from mirsolo.components import (
     SummonOwner,
     Vitals,
     Wallet,
+    Wear,
 )
 from mirsolo.actor import codex, mercenary
 from mirsolo.determinism import Rng
 from mirsolo.economy import auction
 from mirsolo.items import rings
+from mirsolo.items import wear
 from mirsolo.items.drops import roll_drops
 from mirsolo.items.equipment import recompute
 from mirsolo.progression.exp import add_exp, apply_growth
@@ -625,6 +627,9 @@ class DeathRewardSystem(System):
                 if bag is not None:
                     for item_id, count in drop.items:
                         bag.add(item_id, count)
+                        # 掉出来的装备是**全新**的：磨损账按 item_id 记，
+                        # 不重置的话"打废一把木剑"之后连掉落的木剑都是废的。
+                        wear.reset(killer.get(Wear), item_id)
                 world.set_data(KEY_REWARDS, list(world.get_data(KEY_REWARDS, [])) + [{
                     "monster": species,
                     "kill_index": kill_index,

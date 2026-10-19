@@ -25,6 +25,7 @@ from mirsolo.components import (
     Vitals,
     Wallet,
     Warehouse,
+    Wear,
 )
 from mirsolo.data.loader import GameData
 from mirsolo.progression.exp import apply_growth
@@ -94,6 +95,7 @@ def spawn_player(
     entity.add(Bag())
     entity.add(Warehouse())
     entity.add(Loadout())
+    entity.add(Wear())
     entity.add(Skills())
     entity.add(Cooldowns())
     entity.add(Codex())

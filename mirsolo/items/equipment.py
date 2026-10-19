@@ -23,8 +23,10 @@ from mirsolo.components import (
     Loadout,
     Progression,
     Vitals,
+    Wear,
 )
 from mirsolo.data.loader import GameData
+from mirsolo.items import wear
 from mirsolo.progression.exp import grow_attributes
 
 
@@ -133,11 +135,16 @@ def recompute(entity: Entity, data: GameData) -> None:
     # 所以这里可以放心地把**所有槽**的 luck 加起来——加错了门禁会先红。
     luck = 0
     gear_weight = 0
+    wear_book = entity.get(Wear)
     for item_id in slots.values():
         spec = data.items["items"].get(item_id)
         if spec is None:
             continue  # 数据被删时不要让存档崩，直接跳过
+        # 磨穿的装备**仍然占负重**（还挂在身上），但属性加成一分不给：
+        # 不给负重会让"打废装备"变成免费减重，反过来成了一种收益。
         gear_weight += int(spec.get("weight", 0))
+        if wear.is_broken(data, wear_book, item_id):
+            continue
         dc = _add_range(dc, spec.get("atk"))
         mc = _add_range(mc, spec.get("mc"))
         sc = _add_range(sc, spec.get("sc"))

@@ -29,17 +29,27 @@ from mirsolo.components import (
     Codex,
     Cooldowns,
     Identity,
+    Loadout,
     Position,
     Progression,
     Shield,
     Skills,
     Vitals,
     Wallet,
+    Wear,
 )
 from mirsolo.actor import codex, mercenary
 from mirsolo.economy import auction
-from mirsolo.economy.shop import TradeError, buy, deposit, sell, withdraw
-from mirsolo.items.equipment import EquipError, equip, unequip
+from mirsolo.economy.shop import (
+    TradeError,
+    buy,
+    deposit,
+    repair_all,
+    sell,
+    withdraw,
+)
+from mirsolo.items import wear
+from mirsolo.items.equipment import EquipError, equip, recompute, unequip
 from mirsolo.items.rings import RingError, try_travel
 from mirsolo.presentation.hud import (
     MAX_SKILL_SLOTS,
@@ -116,6 +126,7 @@ TRADE_ERRORS = {
     "not_enough": "数量不足",
     "stash_full": "仓库已满",
     "bad_count": "数量不对",
+    "nothing_to_repair": "这件还是好的",
     "missing_components": "角色数据异常",
 }
 
@@ -374,6 +385,9 @@ class MirsoloWindow(pyglet.window.Window):
             elif row.action == "cancel":
                 got = auction.cancel_listing(player, data, int(row.item))
                 self._say(f"撤单 {got['item']} ×{got['count']}")
+            elif row.action == "repair_all":
+                got = repair_all(player, data)
+                self._say(f"修理 {len(got['items'])} 件 −{got['paid']} 金")
             elif row.action == "cycle_tier":
                 self._say(f"报价档：{auction.cycle_ask_tier(player)}")
             elif row.action == "hire":
@@ -772,7 +786,8 @@ def data_items(data) -> list[str]:
 def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
                       learn_all: bool = False, gear: bool = False,
                       gold: int = 0, mercs: tuple[str, ...] = (),
-                      codex_kills: int = 0, bag: bool = False) -> None:
+                      codex_kills: int = 0, bag: bool = False,
+                      wear_left: int | None = None) -> None:
     """验收辅助：提等级 / 发金币 / 发一套装备 / 雇佣兵 / 记图鉴。
 
     刻意**复用游戏内路径**（``apply_growth`` + ``learn`` + ``equip`` + ``hire`` +
@@ -786,7 +801,10 @@ def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
     * ``codex_kills``——只往 ``Codex.kills`` 里记账、**不发首杀奖励**，
       纯粹为了让图鉴截图里同时出现"已解锁"与"未解锁"两种行；
     * ``bag``——往背包塞几件可寄卖的装备（**不穿**）：``gear`` 发的装备
-      当场穿掉了，拍卖行/商店面板的截图里背包是空的，看不出版式。
+      当场穿掉了，拍卖行/商店面板的截图里背包是空的，看不出版式；
+    * ``wear_left``——把身上每件装备磨到只剩该千分比（0 = 全磨穿）：
+      磨损是打出来的，验收只能倒着造，但走的是 ``wear.add_wear`` +
+      ``recompute`` 同一条规则，不是直接改面板文字。
     """
     player = session.world.get_entity("player")
     if player is None:
@@ -808,6 +826,14 @@ def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
     if bag:
         for item_id in sorted(data_items(session.data))[:4]:
             player.get(Bag).add(item_id, 1)
+    if wear_left is not None:
+        book = player.get(Wear)
+        loadout = player.get(Loadout)
+        for item_id in sorted(set((loadout.slots if loadout else {}).values())):
+            total = wear.durability_of(session.data, item_id)
+            left = max(0, min(total, total * int(wear_left) // 1000))
+            wear.add_wear(session.data, book, item_id, total - left)
+        recompute(player, session.data)
     for merc_id in mercs:
         try:
             mercenary.hire(session.world, session.data, player, merc_id, tick=0)
@@ -836,7 +862,8 @@ def launch(*, seed: int = 20261019, map_id: str = "biqi_field",
            level: int = 1, learn: bool = False, gear: bool = False,
            panel: str | None = None, siege: str | None = None,
            gold: int = 0, mercs: tuple[str, ...] = (),
-           codex_kills: int = 0, bag: bool = False) -> None:
+           codex_kills: int = 0, bag: bool = False,
+           wear_left: int | None = None) -> None:
     """装配会话 + 开窗（CLI 与测试共用入口）。
 
     ``panel`` 只用于验收截图：开窗时就打开某个面板（``character``/``mercenary``/
@@ -851,7 +878,7 @@ def launch(*, seed: int = 20261019, map_id: str = "biqi_field",
     populate(session, player_class=player_class)
     prepare_character(session, class_id=player_class, level=level,
                       learn_all=learn, gear=gear, gold=gold, mercs=mercs,
-                      codex_kills=codex_kills, bag=bag)
+                      codex_kills=codex_kills, bag=bag, wear_left=wear_left)
     if siege is not None:
         start_siege(session, siege)
     window = MirsoloWindow(session=session, width=width, height=height)
