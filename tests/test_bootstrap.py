@@ -26,10 +26,22 @@ def test_session_has_core_services():
     session = build_session(data=DATA, seed=1, map_id="biqi_field")
     try:
         assert session.world is not None and session.bus is not None
-        assert len(session.world.systems) == 7, [type(s).__name__ for s in session.world.systems]
+        # 用**名字集合**而不是数量断言：少装一个系统时能直接看出少的是哪个
+        expected = {
+            "TickSystem", "RegenSystem", "CooldownSystem", "MovementSystem",
+            "MobChaseSystem", "AiTargetSystem", "MobAttackSystem", "AttackSystem",
+            "DeathRewardSystem", "RespawnSystem",
+        }
+        names = {type(s).__name__ for s in session.world.systems}
+        assert names == expected, f"系统装配与预期不符：多 {names - expected} 少 {expected - names}"
         # 系统按 priority 排过序后执行：TickSystem 必须最先
         ordered = sorted(session.world.systems, key=lambda s: s.priority)
         assert type(ordered[0]).__name__ == "TickSystem"
+        # 关键先后关系：选敌 → 追击 → 出刀 → 结算，顺序错一环就整条链路慢一拍
+        order = [type(s).__name__ for s in ordered]
+        assert order.index("AiTargetSystem") < order.index("MobChaseSystem") < order.index("MobAttackSystem")
+        assert order.index("MobAttackSystem") < order.index("AttackSystem")
+        assert order.index("AttackSystem") < order.index("DeathRewardSystem")
     finally:
         session.shutdown()
 

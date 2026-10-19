@@ -28,6 +28,9 @@ MODULES = [
     "test_drops",
     "test_data",
     "test_bootstrap",
+    "test_camera",
+    "test_presentation",
+    "test_movement",
 ]
 
 PASS_MARKER = "ALL_MIRSOLO_TESTS_PASSED"

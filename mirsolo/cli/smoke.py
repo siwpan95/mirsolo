@@ -57,7 +57,7 @@ def run_simulation(*, ticks: int, seed: int, map_id: str, player_class: str) -> 
     驱动策略（这是 P0 的"临时玩家"，不是正式输入层）：
 
     1. 选最近活怪，八向走到相邻格；相邻则出刀。
-    2. 怪物只在相邻时反击（每 3 刻一次）。
+    2. 怪物反击交给 ``MobAttackSystem``（相邻 + 按自身攻速），这里不重复排刀。
     3. 玩家死亡即回城复活（满血、回到地图中心），并计数——不做掉落惩罚。
     """
     data = GameData.load()
@@ -92,9 +92,7 @@ def run_simulation(*, ticks: int, seed: int, map_id: str, player_class: str) -> 
                 session.queue_attack(player, target)
             else:
                 _step_grid(ppos, tpos)
-            # 怪物反击：仅在相邻时（隔着半个地图也能打人那是 bug，不是 AI）
-            if dist <= MELEE_RANGE and tick % 3 == 0:
-                session.queue_attack(target, player)
+            # 怪物反击由 MobAttackSystem 统一处理（同一刻只排一次，避免双倍出手）
         session.step(1)
 
     prog = player.get(Progression)

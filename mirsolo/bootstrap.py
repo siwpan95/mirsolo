@@ -23,12 +23,16 @@ from allin_engine import EventBus, FixedTimestepLoop, GameEngine, System, World
 from mirsolo.actor.systems import (
     KEY_INTENTS,
     KEY_KILL_COUNTS,
+    KEY_MOVE_INTENT,
     KEY_REWARDS,
     KEY_TICK,
     AiTargetSystem,
     AttackSystem,
     CooldownSystem,
     DeathRewardSystem,
+    MobAttackSystem,
+    MobChaseSystem,
+    MovementSystem,
     RegenSystem,
     RespawnSystem,
 )
@@ -130,6 +134,7 @@ def build_session(
     world.set_data(KEY_INTENTS, [])
     world.set_data(KEY_KILL_COUNTS, {})
     world.set_data(KEY_REWARDS, [])
+    world.set_data(KEY_MOVE_INTENT, (0, 0))
     world.set_data("current_map", map_id)
     world.set_data("tick_dt", tick_dt)
 
@@ -139,7 +144,10 @@ def build_session(
     world.add_system(TickSystem())
     world.add_system(RegenSystem())
     world.add_system(CooldownSystem())
+    world.add_system(MovementSystem())
+    world.add_system(MobChaseSystem())
     world.add_system(AiTargetSystem())
+    world.add_system(MobAttackSystem(game_data))
     world.add_system(AttackSystem(ctx))
     world.add_system(death_system)
     world.add_system(RespawnSystem(data=game_data, seed=seed))

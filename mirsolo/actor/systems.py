@@ -5,7 +5,10 @@
 | priority | 系统 | 职责 |
 |---:|---|---|
 | 10 | ``CooldownSystem`` | 每帧递减技能冷却 |
-| 20 | ``AiTargetSystem`` | 给主动怪选目标（同阵营跳过、超脱战距离放弃） |
+| 11 | ``AiTargetSystem`` | 给主动怪选目标（同阵营跳过、超脱战距离放弃） |
+| 12 | ``MovementSystem`` | 玩家八向网格移动（读 move_intent，按刻落格） |
+| 14 | ``MobChaseSystem`` | 怪物追击（切比雪夫，八向一格） |
+| 28 | ``MobAttackSystem`` | 相邻怪按自身攻速排队出刀 |
 | 30 | ``AttackSystem`` | 消费攻击意图队列 → 调 ``CombatResolver`` 结算 |
 | 40 | ``DeathRewardSystem`` | 结算死亡奖励：经验 + 掉落 + 金币 |
 | 90 | ``RespawnSystem`` | 按地图刷新表补刷（P0 用固定 tick 间隔） |
@@ -39,6 +42,148 @@ KEY_TICK = "tick"
 KEY_INTENTS = "attack_intents"
 KEY_KILL_COUNTS = "kill_counts"
 KEY_REWARDS = "reward_queue"
+KEY_MOVE_INTENT = "move_intent"
+
+
+def facing_from_delta(dx: int, dy: int) -> int:
+    """八向朝向编号：0=北(-Y)，顺时针每 45° 加 1。
+
+    与传奇客户端一致（北 = 0），因此渲染里"人物面向"可以直接用这个值。
+    """
+    if dx == 0 and dy == 0:
+        return 0
+    if dy > 0 and dx == 0:
+        return 0
+    if dy > 0 and dx > 0:
+        return 1
+    if dx > 0 and dy == 0:
+        return 2
+    if dx > 0 and dy < 0:
+        return 3
+    if dy < 0 and dx == 0:
+        return 4
+    if dy < 0 and dx < 0:
+        return 5
+    if dx < 0 and dy == 0:
+        return 6
+    return 7
+
+
+class MovementSystem(System):
+    """玩家八向网格移动：每 ``step_ticks`` 刻走一格。
+
+    输入不直接改坐标，而是写进 ``world.set_data("move_intent", (dx, dy))``，
+    由本系统按刻度统一落格——这样"按住方向键"不会因为帧率不同而走得更快，
+    headless 与窗口版也永远一致。
+    """
+
+    priority = 12
+
+    def __init__(self, step_ticks: int = 4) -> None:
+        self.step_ticks = max(1, step_ticks)
+
+    def update(self, world: World, dt: float) -> None:
+        tick = int(world.get_data(KEY_TICK, 0))
+        if tick == 0 or tick % self.step_ticks:
+            return
+        intent = world.get_data(KEY_MOVE_INTENT) or (0, 0)
+        dx, dy = int(intent[0]), int(intent[1])
+        if dx == 0 and dy == 0:
+            return
+        player = world.get_entity("player")
+        if player is None:
+            return
+        pos = player.get(Position)
+        if pos is None:
+            return
+        map_id = world.get_data("current_map")
+        data = world.get_data("data")
+        spec = data.maps["maps"].get(map_id or "", {}) if data is not None else {}
+        width, height = spec.get("size", (10**9, 10**9))
+        pos.x = max(0, min(width - 1, pos.x + dx))
+        pos.y = max(0, min(height - 1, pos.y + dy))
+        pos.facing = facing_from_delta(dx, dy)
+
+
+class MobChaseSystem(System):
+    """怪物追击：锁定目标后每 ``step_ticks`` 刻走一格（切比雪夫，八向）。
+
+    与原版一致：怪不会穿墙（P0 地图无墙，P1 接入地牢时这里换成 A*）。
+    """
+
+    priority = 14
+
+    def __init__(self, step_ticks: int = 6) -> None:
+        self.step_ticks = max(1, step_ticks)
+
+    def update(self, world: World, dt: float) -> None:
+        tick = int(world.get_data(KEY_TICK, 0))
+        if tick == 0 or tick % self.step_ticks:
+            return
+        for mob in world.each(AiState, Position):
+            state = mob.get(AiState)
+            pos = mob.get(Position)
+            goal: Position | None = None
+            if state.target_id is not None:
+                target = world.get_entity(state.target_id)
+                if target is not None:
+                    goal = target.get(Position)
+                else:
+                    state.target_id = None
+            # 脱战回巢：没有目标就走回出生点，否则怪会"追一半卡在原地"
+            if goal is None:
+                hx, hy = state.home
+                if int(hx) == int(pos.x) and int(hy) == int(pos.y):
+                    continue
+                goal = Position(hx, hy)
+            dx = int(max(-1, min(1, goal.x - pos.x)))
+            dy = int(max(-1, min(1, goal.y - pos.y)))
+            if dx == 0 and dy == 0:
+                continue
+            pos.x += dx
+            pos.y += dy
+            pos.facing = facing_from_delta(dx, dy)
+
+
+class MobAttackSystem(System):
+    """怪物反击：相邻即按自身攻速排队出刀（与玩家共用 ``AttackSystem`` 结算）。
+
+    为什么怪物也要走意图队列而不是直接调 resolver：
+    这样"同一刻玩家和怪同时出手"的先后顺序由队列决定，可回放、可复算。
+    """
+
+    priority = 28
+
+    def __init__(self, data) -> None:
+        self.data = data
+
+    def update(self, world: World, dt: float) -> None:
+        tick = int(world.get_data(KEY_TICK, 0))
+        if tick == 0:
+            return
+        intents = list(world.get_data(KEY_INTENTS, []))
+        for mob in world.each(AiState, Position, Identity, Vitals):
+            ident = mob.get(Identity)
+            if ident.kind != "monster":
+                continue
+            state = mob.get(AiState)
+            if state.target_id is None:
+                continue
+            target = world.get_entity(state.target_id)
+            if target is None:
+                continue
+            tpos = target.get(Position)
+            pos = mob.get(Position)
+            if max(abs(tpos.x - pos.x), abs(tpos.y - pos.y)) > 1:
+                continue
+            spec = self.data.monsters["monsters"].get(ident.species, {})
+            interval = max(2, 12 - int(spec.get("attack_speed", 3)))
+            if tick - state.last_attack_tick < interval:
+                continue
+            state.last_attack_tick = tick
+            intents.append({"attacker": mob, "defender": target,
+                            "kind": "physical", "power_permille": 1000})
+        world.set_data(KEY_INTENTS, intents)
 
 
 class RegenSystem(System):
@@ -78,9 +223,19 @@ class CooldownSystem(System):
 
 
 class AiTargetSystem(System):
-    """极简选敌：主动怪锁定同图最近的敌对实体，超过脱战距离回巢。"""
+    """极简选敌：主动怪锁定视野内最近的敌对实体，超过脱战距离回巢。
 
-    priority = 20
+    priority 必须**小于** ``MobChaseSystem``：先选目标再走位，
+    否则追击永远慢一拍（每刻都在追上一刻的目标）。
+
+    两个距离门控缺一不可：
+
+    * ``vision``（切比雪夫）——**视野外不建立仇恨**。少了它，怪会盯住半张图外的
+      玩家，走到脱战边界→丢目标→回巢→重新锁定，来回折返永不归位。
+    * ``leash``（欧氏，相对出生点）——超过即放弃目标，由 ``MobChaseSystem`` 送回巢。
+    """
+
+    priority = 11
 
     def update(self, world: World, dt: float) -> None:
         players = [e for e in world.each(Identity, Position)
@@ -101,6 +256,8 @@ class AiTargetSystem(System):
                 if player.get(Identity).faction == ident.faction:
                     continue
                 ppos = player.get(Position)
+                if max(abs(ppos.x - pos.x), abs(ppos.y - pos.y)) > state.vision:
+                    continue  # 视野外不索敌
                 dist = (ppos.x - pos.x) ** 2 + (ppos.y - pos.y) ** 2
                 if dist < best_dist:
                     best, best_dist = player, dist

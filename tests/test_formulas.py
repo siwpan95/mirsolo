@@ -19,25 +19,54 @@ def case(fn):
 
 @case
 def test_hit_chance_equal_stats():
-    """准确 == 敏捷 时就是基准 75%。"""
-    assert formulas.hit_chance_permille(5, 5) == 750
-    assert formulas.hit_chance_permille(20, 20) == 750
+    """准确 == 敏捷 时就是基准 75.00%（万分比 7500）。"""
+    assert formulas.hit_chance_bp(5, 5) == 7500
+    assert formulas.hit_chance_bp(20, 20) == 7500
 
 
 @case
 def test_hit_chance_per_point_is_three_percent():
-    """每差 1 点 ±3%（30 个万分点）；用未触钳制的差距验证线性段。"""
-    assert formulas.hit_chance_permille(6, 5) == 780
-    assert formulas.hit_chance_permille(5, 6) == 720
-    assert formulas.hit_chance_permille(8, 5) == 750 + 90   # 840，仍在钳制区间内
-    assert formulas.hit_chance_permille(15, 5) == formulas.HIT_MAX_PERMILLE  # 1050 被钳到 970
+    """每差 1 点 ±3.00%（300 个万分点）；用未触钳制的差距验证线性段。"""
+    assert formulas.hit_chance_bp(6, 5) == 7800
+    assert formulas.hit_chance_bp(5, 6) == 7200
+    assert formulas.hit_chance_bp(8, 5) == 7500 + 900   # 8400，仍在钳制区间内
+    assert formulas.hit_chance_bp(15, 5) == formulas.HIT_MAX_BP  # 10500 被钳到 9700
 
 
 @case
 def test_hit_chance_is_clamped():
     """上下限必须钳住：再高的准确也不能 100%，再低也不会 0%。"""
-    assert formulas.hit_chance_permille(500, 0) == formulas.HIT_MAX_PERMILLE == 970
-    assert formulas.hit_chance_permille(0, 500) == formulas.HIT_MIN_PERMILLE == 200
+    assert formulas.hit_chance_bp(500, 0) == formulas.HIT_MAX_BP == 9700
+    assert formulas.hit_chance_bp(0, 500) == formulas.HIT_MIN_BP == 2000
+
+
+@case
+def test_hit_rate_matches_declared_chance():
+    """**实测命中率必须等于"75%/84%/66%"这几个字面数字**（尺度一致性回归）。
+
+    只断言"chance 的数值对不对"抓不住尺度错配：曾出现常量是千分制（750=75%）
+    而掷点是 ``rand_int(1, 10000)`` 万分制，结果实际命中率只有 7.5%，
+    所有公式单测却全绿。
+
+    ⚠️ 期望值必须写成**字面量**，不能用 ``hit_chance_bp()`` 现算——
+    那样常量被改脏时两边一起漂移，测试会跟着一起错（自指式断言等于没测）。
+
+    三组覆盖：持平 75.00%、+3 点 84.00%、-3 点 66.00%（每点 3.00%）。
+    每个种子一条独立随机流，样本互不相关；容差 ±1.5 个百分点。
+    """
+    samples = 4000
+    for accuracy, agility, expected_bp in ((5, 5, 7500), (8, 5, 8400), (5, 8, 6600)):
+        hits = 0
+        for seed in range(samples):
+            outcome = formulas.resolve_physical(
+                dc=(1, 1), accuracy=accuracy, ac=(0, 0), agility=agility,
+                rng=Rng(seed, f"rate{seed}:{accuracy}:{agility}"),
+            )
+            hits += 1 if outcome.hit else 0
+        observed_bp = hits * 10000 // samples
+        assert abs(observed_bp - expected_bp) <= 150, (
+            f"准确{accuracy}/敏捷{agility}: 应有 {expected_bp} BP，"
+            f"实测 {observed_bp} BP（样本 {samples}）——掷点与命中率尺度不一致？")
 
 
 def _first_hit(**kwargs):

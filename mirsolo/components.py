@@ -188,10 +188,20 @@ class Cooldowns(Component):
 
 @dataclass
 class AiState(Component):
-    """怪物 AI 的极小状态：目标实体 id + 仇恨值 + 上次攻击刻。"""
+    """怪物 AI 的极小状态：目标实体 id + 仇恨值 + 上次攻击刻。
+
+    两个半径必须分开，否则会出现"追-丢-回-追"的死循环：
+
+    ``vision``
+        索敌视野（切比雪夫格数）。玩家在视野外时**不建立仇恨**——
+        原版怪不会隔着半张地图盯上你。
+    ``leash``
+        脱战距离（与出生点的直线距离）。超过即放弃目标并回巢。
+    """
 
     target_id: int | None = None
     aggro: int = 0
     last_attack_tick: int = -10**9
     home: tuple[float, float] = (0.0, 0.0)
     leash: float = 12.0  # 脱离距离（超过则回巢）
+    vision: float = 10.0  # 索敌视野（切比雪夫格数）

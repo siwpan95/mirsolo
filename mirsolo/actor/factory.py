@@ -88,6 +88,10 @@ def spawn_monster(
         accuracy=int(spec["accuracy"]),
         agility=int(spec["agility"]),
     ))
-    entity.add(AiState(home=(x, y), leash=float(spec.get("leash", 12.0))))
+    entity.add(AiState(
+        home=(x, y),
+        leash=float(spec.get("leash", 12.0)),
+        vision=float(spec.get("vision", 10.0)),
+    ))
     entity.add(Cooldowns())
     return entity

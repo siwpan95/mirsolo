@@ -20,24 +20,30 @@ from dataclasses import dataclass, field
 
 from mirsolo.determinism import Rng
 
-# ── 校准常量（集中一处，方便按实测回归） ────────────────────
+# ── 命中率校准（**万分比 BP**，0..10000） ────────────────────
+#
+# ⚠️ 本项目有两套"比率"尺度，混用会导致命中率差 10 倍（曾真的发生过）：
+#   * **概率** → 万分比 BP，值域 0..10000，掷点也用 ``rand_int(1, 10000)``；
+#   * **倍率** → 千分比 permille，1000 = 100%（``power_permille``）。
+# 凡是"概率"一律带 ``_BP`` 后缀，凡"倍率"一律带 ``_PERMILLE`` 后缀。
 
-HIT_BASE_PERMILLE = 750        # 基准命中率 75%
-HIT_PER_POINT_PERMILLE = 30    # 准确 - 敏捷 每差 1 点 ±3%
-HIT_MIN_PERMILLE = 200         # 命中下限 20%
-HIT_MAX_PERMILLE = 970         # 命中上限 97%
+HIT_BASE_BP = 7500            # 基准命中率 75.00%
+HIT_PER_POINT_BP = 300        # 准确 - 敏捷 每差 1 点 ±3.00%
+HIT_MIN_BP = 2000             # 命中下限 20.00%
+HIT_MAX_BP = 9700             # 命中上限 97.00%
+HIT_ROLL_DENOMINATOR = 10000  # 掷点分母：必须与上面的 BP 同尺度
 MIN_DAMAGE = 1                 # 命中即至少 1 点（原版"最小伤害"）
 MAX_DAMAGE_CAP = 4_000_000     # 单次伤害上限，防数值溢出（远高于原版上限）
 
 
-def hit_chance_permille(accuracy: int, agility: int) -> int:
-    """命中率（万分比）。``CALIBRATE``：线性近似，原版为分段表。
+def hit_chance_bp(accuracy: int, agility: int) -> int:
+    """命中率（万分比 ``BP``，0..10000）。``CALIBRATE``：线性近似，原版为分段表。
 
-    >>> hit_chance_permille(5, 5)
-    750
+    >>> hit_chance_bp(5, 5)
+    7500
     """
-    raw = HIT_BASE_PERMILLE + (accuracy - agility) * HIT_PER_POINT_PERMILLE
-    return max(HIT_MIN_PERMILLE, min(HIT_MAX_PERMILLE, raw))
+    raw = HIT_BASE_BP + (accuracy - agility) * HIT_PER_POINT_BP
+    return max(HIT_MIN_BP, min(HIT_MAX_BP, raw))
 
 
 def roll_damage_range(value: tuple[int, int], rng: Rng) -> int:
@@ -79,7 +85,7 @@ def resolve_physical(
 
     流程与 1.76 口径一致：**先判命中，再 roll 攻防**。
 
-    - 命中：``准确 vs 敏捷`` → ``hit_chance_permille``
+    - 命中：``准确 vs 敏捷`` → ``hit_chance_bp``（万分比）
     - 攻击：``rand(DC下限, DC上限)``，技能按 ``power_permille`` 缩放
     - 防御：``rand(AC下限, AC上限)`` 抵扣，最低 :data:`MIN_DAMAGE`
 
@@ -87,8 +93,8 @@ def resolve_physical(
         power_permille: 技能倍率（1000 = 100%）。刺杀/烈火等技能 >1000。
     """
     outcome = AttackOutcome()
-    chance = hit_chance_permille(accuracy, agility)
-    hit_roll = rng.rand_int(1, 10000)
+    chance = hit_chance_bp(accuracy, agility)
+    hit_roll = rng.rand_int(1, HIT_ROLL_DENOMINATOR)
     outcome.rolls["hit"] = hit_roll
     outcome.rolls["hit_chance"] = chance
     if hit_roll > chance:
