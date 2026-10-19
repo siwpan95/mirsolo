@@ -1,7 +1,7 @@
 {
   "meta": {
     "version": "1.76-ref",
-    "note": "每组独立 roll 组权重（万分比，非互斥）；组内按 permille 挑一条；gold 单独 roll 区间。P1 起怪也掉技能书（低概率），与原版「书靠打或买」一致。",
+    "note": "每组独立 roll 组权重（万分比，非互斥）；组内按 permille 挑一条；gold 单独 roll 区间。P1 起怪也掉技能书（低概率），与原版「书靠打或买」一致。 每组药水（P3-S3）按怪物等级分档：1-10 级小瓶、11-24 中瓶、25-39 大瓶、40+ 大瓶与超级瓶，BOSS 一次掉 2-4 瓶。药水组一律追加在 groups 末尾，避免挪动既有装备组的随机流下标。",
     "source": "docs/数据口径.md#drops"
   },
   "drops": {
@@ -20,6 +20,27 @@
               "count": [
                 1,
                 1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 300,
+          "entries": [
+            {
+              "item": "hp_potion_s",
+              "permille": 5000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_s",
+              "permille": 5000,
+              "count": [
+                1,
+                2
               ]
             }
           ]
@@ -57,6 +78,27 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 300,
+          "entries": [
+            {
+              "item": "hp_potion_s",
+              "permille": 5000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_s",
+              "permille": 5000,
+              "count": [
+                1,
+                2
+              ]
+            }
+          ]
         }
       ]
     },
@@ -83,6 +125,27 @@
               "count": [
                 1,
                 1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 300,
+          "entries": [
+            {
+              "item": "hp_potion_s",
+              "permille": 5000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_s",
+              "permille": 5000,
+              "count": [
+                1,
+                2
               ]
             }
           ]
@@ -123,6 +186,27 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 320,
+          "entries": [
+            {
+              "item": "hp_potion_m",
+              "permille": 5000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_m",
+              "permille": 5000,
+              "count": [
+                1,
+                2
+              ]
+            }
+          ]
         }
       ]
     },
@@ -157,6 +241,27 @@
               "count": [
                 1,
                 1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 320,
+          "entries": [
+            {
+              "item": "hp_potion_m",
+              "permille": 5000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_m",
+              "permille": 5000,
+              "count": [
+                1,
+                2
               ]
             }
           ]
@@ -210,6 +315,27 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 320,
+          "entries": [
+            {
+              "item": "hp_potion_m",
+              "permille": 5000,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "mp_potion_m",
+              "permille": 5000,
+              "count": [
+                2,
+                4
+              ]
+            }
+          ]
         }
       ]
     },
@@ -236,6 +362,27 @@
               "count": [
                 1,
                 1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 320,
+          "entries": [
+            {
+              "item": "hp_potion_m",
+              "permille": 5000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_m",
+              "permille": 5000,
+              "count": [
+                1,
+                2
               ]
             }
           ]
@@ -281,6 +428,27 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 320,
+          "entries": [
+            {
+              "item": "hp_potion_m",
+              "permille": 5000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_m",
+              "permille": 5000,
+              "count": [
+                1,
+                2
+              ]
+            }
+          ]
         }
       ]
     },
@@ -320,6 +488,35 @@
               "count": [
                 1,
                 1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 350,
+          "entries": [
+            {
+              "item": "hp_potion_l",
+              "permille": 4500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_l",
+              "permille": 4500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "sunwater",
+              "permille": 1000,
+              "count": [
+                1,
+                2
               ]
             }
           ]
@@ -365,6 +562,35 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 350,
+          "entries": [
+            {
+              "item": "hp_potion_l",
+              "permille": 4500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_l",
+              "permille": 4500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "sunwater",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            }
+          ]
         }
       ]
     },
@@ -404,6 +630,35 @@
               "count": [
                 1,
                 1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 350,
+          "entries": [
+            {
+              "item": "hp_potion_l",
+              "permille": 4500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_l",
+              "permille": 4500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "sunwater",
+              "permille": 1000,
+              "count": [
+                1,
+                2
               ]
             }
           ]
@@ -459,6 +714,35 @@
               "count": [
                 1,
                 1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 350,
+          "entries": [
+            {
+              "item": "hp_potion_l",
+              "permille": 4500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_l",
+              "permille": 4500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "sunwater",
+              "permille": 1000,
+              "count": [
+                1,
+                2
               ]
             }
           ]
@@ -525,6 +809,51 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 400,
+          "entries": [
+            {
+              "item": "hp_potion_l",
+              "permille": 3500,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "mp_potion_l",
+              "permille": 3500,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "hp_potion_x",
+              "permille": 1000,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "mp_potion_x",
+              "permille": 1000,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "sunwater",
+              "permille": 1000,
+              "count": [
+                2,
+                4
+              ]
+            }
+          ]
         }
       ]
     },
@@ -567,6 +896,51 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 400,
+          "entries": [
+            {
+              "item": "hp_potion_l",
+              "permille": 3500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_l",
+              "permille": 3500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "hp_potion_x",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_x",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "sunwater",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            }
+          ]
         }
       ]
     },
@@ -606,6 +980,51 @@
               "count": [
                 1,
                 1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 400,
+          "entries": [
+            {
+              "item": "hp_potion_l",
+              "permille": 3500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_l",
+              "permille": 3500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "hp_potion_x",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_x",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "sunwater",
+              "permille": 1000,
+              "count": [
+                1,
+                2
               ]
             }
           ]
@@ -672,6 +1091,51 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 400,
+          "entries": [
+            {
+              "item": "hp_potion_l",
+              "permille": 3500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_l",
+              "permille": 3500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "hp_potion_x",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_x",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "sunwater",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            }
+          ]
         }
       ]
     },
@@ -732,6 +1196,51 @@
               "count": [
                 1,
                 1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 400,
+          "entries": [
+            {
+              "item": "hp_potion_l",
+              "permille": 3500,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "mp_potion_l",
+              "permille": 3500,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "hp_potion_x",
+              "permille": 1000,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "mp_potion_x",
+              "permille": 1000,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "sunwater",
+              "permille": 1000,
+              "count": [
+                2,
+                4
               ]
             }
           ]
@@ -798,6 +1307,51 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 400,
+          "entries": [
+            {
+              "item": "hp_potion_l",
+              "permille": 3500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_l",
+              "permille": 3500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "hp_potion_x",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_x",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "sunwater",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            }
+          ]
         }
       ]
     },
@@ -832,6 +1386,51 @@
               "count": [
                 1,
                 1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 400,
+          "entries": [
+            {
+              "item": "hp_potion_l",
+              "permille": 3500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_l",
+              "permille": 3500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "hp_potion_x",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_x",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "sunwater",
+              "permille": 1000,
+              "count": [
+                1,
+                2
               ]
             }
           ]
@@ -935,6 +1534,51 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 400,
+          "entries": [
+            {
+              "item": "hp_potion_l",
+              "permille": 3500,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "mp_potion_l",
+              "permille": 3500,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "hp_potion_x",
+              "permille": 1000,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "mp_potion_x",
+              "permille": 1000,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "sunwater",
+              "permille": 1000,
+              "count": [
+                2,
+                4
+              ]
+            }
+          ]
         }
       ]
     },
@@ -969,6 +1613,51 @@
               "count": [
                 1,
                 1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 400,
+          "entries": [
+            {
+              "item": "hp_potion_l",
+              "permille": 3500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_l",
+              "permille": 3500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "hp_potion_x",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_x",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "sunwater",
+              "permille": 1000,
+              "count": [
+                1,
+                2
               ]
             }
           ]
@@ -1056,6 +1745,51 @@
               "count": [
                 1,
                 1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 400,
+          "entries": [
+            {
+              "item": "hp_potion_l",
+              "permille": 3500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_l",
+              "permille": 3500,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "hp_potion_x",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "mp_potion_x",
+              "permille": 1000,
+              "count": [
+                1,
+                2
+              ]
+            },
+            {
+              "item": "sunwater",
+              "permille": 1000,
+              "count": [
+                1,
+                2
               ]
             }
           ]
@@ -1180,6 +1914,51 @@
               "count": [
                 1,
                 1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 400,
+          "entries": [
+            {
+              "item": "hp_potion_l",
+              "permille": 3500,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "mp_potion_l",
+              "permille": 3500,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "hp_potion_x",
+              "permille": 1000,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "mp_potion_x",
+              "permille": 1000,
+              "count": [
+                2,
+                4
+              ]
+            },
+            {
+              "item": "sunwater",
+              "permille": 1000,
+              "count": [
+                2,
+                4
               ]
             }
           ]

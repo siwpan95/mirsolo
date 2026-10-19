@@ -24,6 +24,7 @@ from mirsolo.components import (
     DeathLedger,
     Identity,
     Position,
+    PotionState,
     Progression,
     Vitals,
     Wallet,
@@ -102,6 +103,11 @@ def run_simulation(*, ticks: int, seed: int, map_id: str, player_class: str) -> 
     wallet = player.get(Wallet)
     bag = player.get(Bag)
     rewards = session.rewards()
+    # 药水口径：背包里还剩几瓶 + 最后一瓶喝的是什么（headless 没有按键，
+    # 这一栏只可能是**自动喝药**留下的痕迹，正好反证那一档常开着）
+    potions_left = {k: v for k, v in sorted(bag.items.items())
+                    if data.items["items"].get(k, {}).get("kind") == "consumable"}
+    pstate = player.get(PotionState)
     summary = {
         "ok": True,
         "seed": seed,
@@ -123,6 +129,8 @@ def run_simulation(*, ticks: int, seed: int, map_id: str, player_class: str) -> 
         "spawned": spawned_count,
         "entities_left": session.world.entity_count(),
         "kill_counts": dict(sorted(session.kill_counts().items())),
+        "potions_left": potions_left,
+        "potion_last": pstate.last if pstate is not None else "",
     }
     session.shutdown()
     return summary
@@ -159,6 +167,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"死亡 {summary['deaths']} 次  累计掉经验 {summary['exp_lost']}  "
               f"累计掉金币 {summary['gold_lost']}")
         print(f"背包 {summary['bag'] or '空'}")
+        print(f"药水：背包剩 {sum(summary['potions_left'].values())} 瓶"
+              f"（{summary['potions_left'] or '无'}）"
+              f"  最后喝过 {summary['potion_last'] or '没喝过'}")
 
     if summary["kills"] == 0:
         print("[FAIL] 推演期间无任何击杀——战斗链路可能断了", file=sys.stderr)

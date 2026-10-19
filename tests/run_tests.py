@@ -42,6 +42,7 @@ MODULES = [
     "test_mercenary",
     "test_wear",
     "test_penalty",
+    "test_potion",
     "test_codex",
 ]
 

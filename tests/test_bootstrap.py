@@ -28,7 +28,8 @@ def test_session_has_core_services():
         assert session.world is not None and session.bus is not None
         # 用**名字集合**而不是数量断言：少装一个系统时能直接看出少的是哪个
         expected = {
-            "TickSystem", "RegenSystem", "CooldownSystem", "MovementSystem",
+            "TickSystem", "RegenSystem", "PotionSystem", "CooldownSystem",
+            "MovementSystem",
             "SkillSystem", "StatusSystem", "MobChaseSystem", "AiTargetSystem",
             "RingEffectSystem", "MobAttackSystem", "AttackSystem",
             "AuctionSystem", "MercenarySystem",
@@ -57,6 +58,9 @@ def test_session_has_core_services():
         assert order.index("AuctionSystem") < order.index("AttackSystem")
         # 佣兵到期解散必须在出刀之前（到期的人不该在这一 tick 还挥一刀）
         assert order.index("AuctionSystem") < order.index("MercenarySystem")
+        # 喝药在战斗（28/30）之前：药效必须赶在怪物这一 tick 出刀前进账
+        assert order.index("MercenarySystem") < order.index("PotionSystem")
+        assert order.index("PotionSystem") < order.index("MobAttackSystem")
         assert order.index("MercenarySystem") < order.index("AttackSystem")
         assert order.index("RingEffectSystem") < order.index("AttackSystem")
         # 战役推进在伤害结算之后（否则读到"打之前"的血量），补刷之前

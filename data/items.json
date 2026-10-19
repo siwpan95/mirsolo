@@ -1,7 +1,7 @@
 {
   "meta": {
     "version": "1.76-ref",
-    "note": "装备 kind=equip（slot 必填）；技能书 kind=book（teaches 指向 skills.json 的 id，slot 为 null）。武器 atk / 防具 ac 均为 (下限, 上限)| null；weight 与等级需求按公开资料，个别为近似。技能书价格 = 500 × 学习等级（近似，P1 商店按此定价）。",
+    "note": "装备 kind=equip（slot 必填）；技能书 kind=book（teaches 指向 skills.json 的 id，slot 为 null）；消耗品 kind=consumable（consume 段给 effect/amount/cooldown_ticks，不可寄卖）。武器 atk / 防具 ac 均为 (下限, 上限)| null；weight 与等级需求按公开资料，个别为近似。技能书价格 = 500 × 学习等级（近似，P1 商店按此定价）。药水回复量与价格为公开资料近似值（详见 docs/数据口径.md 药水一节）。",
     "source": "docs/数据口径.md#items"
   },
   "items": {
@@ -1065,6 +1065,249 @@
         "demand_bp": 850,
         "floor_permille": 650
       }
+    },
+    "hp_potion_s": {
+      "name": "金创药(小)",
+      "kind": "consumable",
+      "consume": {
+        "effect": "hp",
+        "amount": 20,
+        "cooldown_ticks": 10
+      },
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 1,
+      "price": 100,
+      "tier": "common",
+      "auction": null
+    },
+    "hp_potion_m": {
+      "name": "金创药(中)",
+      "kind": "consumable",
+      "consume": {
+        "effect": "hp",
+        "amount": 50,
+        "cooldown_ticks": 10
+      },
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 2,
+      "durability": 0,
+      "level_req": 1,
+      "price": 300,
+      "tier": "common",
+      "auction": null
+    },
+    "hp_potion_l": {
+      "name": "金创药(大)",
+      "kind": "consumable",
+      "consume": {
+        "effect": "hp",
+        "amount": 100,
+        "cooldown_ticks": 10
+      },
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 3,
+      "durability": 0,
+      "level_req": 1,
+      "price": 700,
+      "tier": "common",
+      "auction": null
+    },
+    "hp_potion_x": {
+      "name": "超级金创药",
+      "kind": "consumable",
+      "consume": {
+        "effect": "hp",
+        "amount": 200,
+        "cooldown_ticks": 10
+      },
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 4,
+      "durability": 0,
+      "level_req": 20,
+      "price": 1600,
+      "tier": "common",
+      "auction": null
+    },
+    "mp_potion_s": {
+      "name": "魔法药(小)",
+      "kind": "consumable",
+      "consume": {
+        "effect": "mp",
+        "amount": 20,
+        "cooldown_ticks": 10
+      },
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 1,
+      "price": 120,
+      "tier": "common",
+      "auction": null
+    },
+    "mp_potion_m": {
+      "name": "魔法药(中)",
+      "kind": "consumable",
+      "consume": {
+        "effect": "mp",
+        "amount": 50,
+        "cooldown_ticks": 10
+      },
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 2,
+      "durability": 0,
+      "level_req": 1,
+      "price": 360,
+      "tier": "common",
+      "auction": null
+    },
+    "mp_potion_l": {
+      "name": "魔法药(大)",
+      "kind": "consumable",
+      "consume": {
+        "effect": "mp",
+        "amount": 100,
+        "cooldown_ticks": 10
+      },
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 3,
+      "durability": 0,
+      "level_req": 1,
+      "price": 840,
+      "tier": "common",
+      "auction": null
+    },
+    "mp_potion_x": {
+      "name": "超级魔法药",
+      "kind": "consumable",
+      "consume": {
+        "effect": "mp",
+        "amount": 200,
+        "cooldown_ticks": 10
+      },
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 4,
+      "durability": 0,
+      "level_req": 20,
+      "price": 1920,
+      "tier": "common",
+      "auction": null
+    },
+    "sunwater": {
+      "name": "太阳水",
+      "kind": "consumable",
+      "consume": {
+        "effect": "both",
+        "amount": 50,
+        "cooldown_ticks": 10
+      },
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 3,
+      "durability": 0,
+      "level_req": 1,
+      "price": 900,
+      "tier": "common",
+      "auction": null
     }
   }
 }

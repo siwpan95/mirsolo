@@ -85,9 +85,18 @@ def test_drop_rate_matches_group_permille():
 
 @case
 def test_boss_has_two_groups_and_can_drop_weapon():
-    """尸王两组：6000 主组 + 1500 追加组；200 次内应至少掉一次斩马刀。"""
+    """尸王两组装备 + 一组药水；200 次内应至少掉一次斩马刀。
+
+    P3-S3 给药水加的那一组**必须追加在末尾**：``roll_drops`` 的随机流名带组
+    下标（``...:group{index}``），插到前面会把既有装备组的流名整体挪位，
+    等于把已经沉淀下来的掉落结果全部洗牌。这条断言就是那次洗牌的报警器。
+    """
     table = _table("shiwang")
-    assert len(table["groups"]) == 2
+    items = DATA.items["items"]
+    assert len(table["groups"]) == 3
+    kinds = [items[entry["item"]]["kind"]
+             for group in table["groups"] for entry in group["entries"]]
+    assert kinds[-2:] == ["consumable", "consumable"], "药水组必须是最后一组"
     found = False
     for index in range(200):
         drop = roll_drops(table, seed=11, monster_id="shiwang", kill_index=index)

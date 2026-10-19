@@ -42,7 +42,7 @@ from mirsolo.actor import codex, mercenary
 from mirsolo.data.loader import SLOTS, GameData
 from mirsolo.economy import auction
 from mirsolo.economy.shop import buy_price, sell_price
-from mirsolo.items import wear
+from mirsolo.items import potion, wear
 from mirsolo.items.rings import EFFECT_LABELS, charges_left, ring_effect
 from mirsolo.presentation.hud import Rect, TextAnchor
 
@@ -310,13 +310,16 @@ def build_character_panel(*, player: Entity, data: GameData,
 
 
 def shop_stock(data: GameData) -> list[str]:
-    """商店货架：``items.json`` 里的装备与技能书，按 (价, id) 排。
+    """商店货架：``items.json`` 里的装备、技能书与药水，按 (价, id) 排。
 
     单机版**随身商铺**（不占城镇位置）是刻意简化，记在 ``docs/数据口径.md``；
     价格仍走 ``shop.buy_price``，与卖出价共用一份表，不可能出现两套口径。
+
+    药水（``consumable``）从 P3-S3 起上架：续航的两条腿是商店与掉落，
+    只有掉落的话脸黑时会直接卡死推进节奏。
     """
     ids = [item_id for item_id, spec in data.items["items"].items()
-           if spec.get("kind", "equip") in ("equip", "book")]
+           if spec.get("kind", "equip") in ("equip", "book", "consumable")]
     return sorted(ids, key=lambda item_id: (buy_price(data, item_id), item_id))
 
 
@@ -341,8 +344,15 @@ def build_shop_panel(*, player: Entity, data: GameData,
     for item_id in shop_stock(data):
         spec = data.items["items"][item_id]
         price = buy_price(data, item_id)
-        hint = f"{price} 金"
-        able = gold >= price
+        # 药水按捆卖：一瓶一瓶点太折磨，而“补满”要先把负重余量算一遍、
+        # 一次点击就可能把背包和钱包同时清空。固定捆数最可预测，
+        # 口径写在 ``potion.BUY_BUNDLE``，窗口层照着它买同一捆数。
+        count = potion.BUY_BUNDLE if spec.get("kind") == "consumable" else 1
+        cost = price * count
+        able = gold >= cost
+        hint = f"{cost} 金"
+        if count > 1:
+            hint += f"（{count} 瓶）"
         if not able:
             hint += "（钱不够）"
         elif prog is not None and prog.level < int(spec.get("level_req", 1)):

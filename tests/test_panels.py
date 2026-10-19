@@ -198,14 +198,16 @@ def test_character_panel_disables_wearable_it_cannot_use():
 
 @case
 def test_shop_stock_covers_all_equipment_and_books():
-    """货架 = 全部装备 + 全部技能书，且显示的是**买入价**（不是回收价）。"""
+    """货架 = 全部装备 + 全部技能书 + 全部药水，且显示的是**买入价**。
+
+    药水从 P3-S3 起上架（续航两条腿之一）。不写死 22/16/9 这些数字：
+    表里加了东西就该跟着变，写死只会把“新东西永远进不了货架”藏起来。
+    """
     stock = shop_stock(DATA)
     kinds = [ITEMS[i]["kind"] for i in stock]
-    # 不写死 8/16：装备表加了东西（P2 的赤月/牛魔 6 件）就该跟着变，
-    # 写死数字只会让"新装备永远进不了货架"这种事故被藏起来。
     assert len(stock) == len(ITEMS), (len(stock), len(ITEMS))
-    assert kinds.count("equip") == sum(1 for i in ITEMS.values() if i["kind"] == "equip")
-    assert kinds.count("book") == sum(1 for i in ITEMS.values() if i["kind"] == "book")
+    for kind in ("equip", "book", "consumable"):
+        assert kinds.count(kind) == sum(1 for i in ITEMS.values() if i["kind"] == kind), kind
     prices = [buy_price(DATA, i) for i in stock]
     assert prices == sorted(prices), "货架应按价格升序，玩家一眼看到买得起的"
 

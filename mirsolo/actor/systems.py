@@ -7,6 +7,7 @@
 | 5 | ``RegenSystem`` | 每刻回血回蓝（静止加成，战斗中断） |
 | 6 | ``AuctionSystem`` | 拍卖行撮合（每 ``CHECK_TICKS`` 刻结算一轮挂单） |
 | 7 | ``MercenarySystem`` | 佣兵到期解散（``Mercenary.until_tick`` 到点即离场） |
+| 8 | ``PotionSystem`` | 喝药（手动意图 + 自动阈值，两条路共用一个公共冷却） |
 | 10 | ``CooldownSystem`` | 每帧递减技能冷却 |
 | 11 | ``AiTargetSystem`` | 给主动怪选目标（同阵营跳过、超脱战距离放弃） |
 | 12 | ``MovementSystem`` | 玩家八向网格移动（读 move_intent，按刻落格） |
@@ -47,6 +48,7 @@ from mirsolo.components import (
     Paralysis,
     Poison,
     Position,
+    PotionState,
     Progression,
     RingState,
     SummonOwner,
@@ -57,7 +59,7 @@ from mirsolo.components import (
 from mirsolo.actor import codex, mercenary, penalty
 from mirsolo.determinism import Rng
 from mirsolo.economy import auction
-from mirsolo.items import rings
+from mirsolo.items import potion, rings
 from mirsolo.items import wear
 from mirsolo.items.drops import roll_drops
 from mirsolo.items.equipment import recompute
@@ -72,6 +74,12 @@ KEY_MOVE_INTENT = "move_intent"
 KEY_DOWNED = "last_down"
 #: 上一次死亡的结算结果（经验/金币/物品/磨损），表现层弹提示用
 KEY_LAST_DEATH = "last_death"
+#: 手动喝药的意图（"hp" / "mp"），``PotionSystem`` 消费即清——
+#: 不清的话一次按键会在接下来的每个 tick 里各喝一口
+KEY_POTION_INTENT = "potion_intent"
+#: 上一次**手动**喝药的结果。自动喝药刻意不写：它每 tick 都可能发生，
+#: 往屏幕上刷一行提示等于噪音（血条动了就是反馈）
+KEY_LAST_POTION = "last_potion"
 
 #: 佣兵到期离队（字符串与 ``mercenary.EVT_DISMISS`` 同一个，这里导入避免系统与规则层互相 import）
 EVT_MERC_DISMISS = mercenary.EVT_DISMISS
@@ -366,6 +374,69 @@ class RegenSystem(System):
                 vitals.hp += 1
             if vitals.mp < vitals.max_mp:
                 vitals.mp += 1
+
+
+class PotionSystem(System):
+    """喝药（P3-S3）：先消费手动意图，再跑自动喝药，两条路共用一个公共冷却。
+
+    priority 8 = 佣兵到期（7）之后、技能冷却递减（10）**之前**；更关键的是远在
+    选敌（11）与出刀（28/30）之前——药效必须在怪物这一 tick 挥刀**之前**进账，
+    否则“血见底了赶紧喝一口”会在同一 tick 里先挨一刀，等于喝了个寂寞。
+
+    为什么手动与自动放在同一个系统里而不是把自动塞进 ``RegenSystem``：两者共用
+    一本冷却账（``PotionState.ready_at``），分开放迟早长出第二套“自动刚喝完，
+    手动这一口算不算冷却中”的判断。
+    """
+
+    priority = 8
+
+    def __init__(self, *, data: GameData) -> None:
+        self.data = data
+
+    def update(self, world: World, dt: float) -> None:
+        data = world.get_data("data") or self.data
+        tick = int(world.get_data(KEY_TICK, 0))
+        player = world.get_entity("player")
+        if player is None:
+            return
+
+        # 1) 手动：按一次喝一口，消费即清。挑哪瓶交给规则层，
+        #    这里只负责把“想回血/想回蓝”翻译成一瓶具体的药。
+        want = world.get_data(KEY_POTION_INTENT)
+        if want:
+            world.set_data(KEY_POTION_INTENT, None)
+            vitals = player.get(Vitals)
+            item_id = potion.pick(player.get(Bag), data, str(want),
+                                  potion.need_of(vitals, str(want)))
+            if item_id is None:
+                # 挑不到瓶也要给回音：手动是玩家**主动**按的键，
+                # 没反应等于按键失灵。自动那一路才该静默（它每 tick 都可能发生）。
+                world.set_data(KEY_LAST_POTION, {
+                    "ok": False, "code": "none_left",
+                    "message": "背包里没有能回%s的药" % ("血" if str(want) == "hp" else "蓝"),
+                })
+            else:
+                self._drink(world, player, data, tick, item_id, manual=True)
+
+        # 2) 自动：阈值以下就补。上一步手动喝过了就一定还在冷却里，
+        #    potion.drink 会自己拒绝，不会出现同 tick 连灌两瓶。
+        item_id = potion.auto_pick(player, data)
+        if item_id is not None:
+            self._drink(world, player, data, tick, item_id, manual=False)
+
+    def _drink(self, world: World, player: Entity, data: GameData, tick: int,
+               item_id: str, *, manual: bool) -> None:
+        """喝一口。手动那一路才往世界写反馈；自动那一路静默。"""
+        try:
+            got = potion.drink(player, data, item_id, tick=tick)
+        except potion.PotionError as exc:
+            if manual:
+                world.set_data(KEY_LAST_POTION,
+                               {"ok": False, "code": exc.code, "message": str(exc)})
+            return
+        if manual:
+            got["ok"] = True
+            world.set_data(KEY_LAST_POTION, got)
 
 
 class CooldownSystem(System):

@@ -313,6 +313,22 @@ class Downed(Component):
 
 
 @dataclass
+class PotionState(Component):
+    """喝药状态：公共冷却的**到期刻**（P3-S3）。
+
+    为什么不用现成的 ``Cooldowns``：那边是浮点秒数、每帧递减（技能要的是
+    那种手感），而药水冷却必须落在**整数刻**上——否则"同一 tick 的存档"
+    会回放出一个"还差 0.03 秒"的冷却，回不了档也对不上账。
+
+    ``last`` 只给表现层用（上一口喝的是什么、回了多少），不参与任何判定：
+    判定一律回到 ``Vitals`` 与背包。
+    """
+
+    ready_at: int = 0
+    last: str = ""
+
+
+@dataclass
 class Paralysis(Component):
     """麻痹：``until_tick`` 之前**不能移动、不能出手**（玩家与怪同一套）。
 

@@ -13,9 +13,9 @@ from __future__ import annotations
 
 from allin_engine import Entity
 
-from mirsolo.components import Bag, Body, Loadout, Warehouse, Wallet, Wear
+from mirsolo.components import Bag, Body, Loadout, Vitals, Warehouse, Wallet, Wear
 from mirsolo.data.loader import GameData
-from mirsolo.items import wear
+from mirsolo.items import potion, wear
 from mirsolo.items.equipment import recompute
 
 #: 回收价 = 买入价 // 该系数（原版卖掉装备大约只值三分之一）
@@ -153,6 +153,57 @@ def repair_all(entity: Entity, data: GameData) -> dict:
         wear.reset(wear_book, row["item"])
     recompute(entity, data)
     return {"items": [row["item"] for row in rows], "paid": total, "gold": wallet.gold}
+
+
+def resupply(entity: Entity, data: GameData) -> dict:
+    """一键补给：按当前血/蓝上限挑档位，红蓝各买 ``potion.BUY_BUNDLE`` 瓶。
+
+    为什么是"一批"而不是"补满"：补满要一路买到负重见底或钱花光，一次点击
+    就把背包和钱包同时清空——捡不到掉落、修不起装备，是个看着方便实则坑人
+    的按钮。固定一批可预测，点几次就是几批。
+
+    为什么整笔拒绝而不是"钱不够就少买点"：与 :func:`buy` 同一条规矩，
+    本模块不做悄悄扣一半这种模糊处理。钱不够/装不下，面板把这一行置灰
+    并写明差多少。
+    """
+    vitals = entity.get(Vitals)
+    wallet = entity.get(Wallet)
+    bag = entity.get(Bag)
+    if vitals is None or wallet is None or bag is None:
+        raise TradeError("missing_components", "缺少 Vitals/Wallet/Bag 组件")
+
+    # 负重是**物理**上限，所以这里按余量夹瓶数（红优先），而不是整笔拒绝：
+    # 法师 30 级裸装负重只有 49，红蓝各 10 瓶要 50，整笔拒绝会让人一次也补不了。
+    # 钱不够才是整笔拒绝——那一条从第一天起就没破过例。
+    free = potion.free_weight(entity, data, carried_weight(entity, data))
+    plan: list[tuple[str, int]] = []
+    for want, cap in (("hp", int(vitals.max_hp) // 2), ("mp", int(vitals.max_mp) // 2)):
+        if cap <= 0:
+            continue  # 战士 max_mp 恒为 0，这一档连挑都不用挑
+        item_id = potion.stock_choice(data, want, cap)
+        if item_id is None:
+            continue
+        weight = int(data.items["items"][item_id].get("weight", 1)) or 1
+        count = min(potion.BUY_BUNDLE, free // weight)
+        if count <= 0:
+            continue
+        free -= weight * count
+        plan.append((item_id, count))
+    if not plan:
+        raise TradeError("overweight", "负重已经满了，一瓶也塞不进去")
+
+    cost = sum(buy_price(data, item_id) * count for item_id, count in plan)
+    if wallet.gold < cost:
+        raise TradeError("no_gold", f"金币不足：需要 {cost}，身上 {wallet.gold}")
+    new_kinds = sum(1 for item_id, _ in plan if item_id not in bag.items)
+    if bag.used + new_kinds > int(bag.capacity):
+        raise TradeError("bag_full", "背包放不下新种类的药水了")
+
+    wallet.gold -= cost
+    for item_id, count in plan:
+        bag.add(item_id, count)
+    return {"items": [{"item": i, "count": n} for i, n in plan],
+            "paid": cost, "gold": wallet.gold}
 
 
 def deposit(entity: Entity, data: GameData, item_id: str, count: int = 1) -> dict:

@@ -41,8 +41,13 @@ CLASSES = ("warrior", "mage", "taoist")
 #: 数据表若给别的槽写 ``luck``，``scripts/verify.py`` 的 ``luck-sources`` 门禁会红。
 LUCK_SLOTS = ("weapon", "necklace")
 
-#: 物品大类：装备 / 技能书（P1-S2 起；消耗品待 P2 药水批次）
-ITEM_KINDS = frozenset({"equip", "book"})
+#: 物品大类：装备 / 技能书 / 消耗品（消耗品自 P3-S3 药水批次起）。
+#: 消耗品的回复口径写在各自的 ``consume`` 段里，loader 只查键在与值域。
+ITEM_KINDS = frozenset({"equip", "book", "consumable"})
+
+#: 药水效果全集（数据面事实的唯一定义处，``mirsolo/items/potion.py`` 从这里导入）：
+#: hp = 只回血 / mp = 只回蓝 / both = 红蓝都回（太阳水）。
+POTION_EFFECTS = frozenset({"hp", "mp", "both"})
 
 #: 特戒效果全集（数据面事实的唯一定义处，``mirsolo/items/rings.py`` 从这里导入）
 #: 六枚戒指按**触发时机**分成三类（命中触发 / 挨打触发 / 主动触发），
@@ -255,6 +260,25 @@ class GameData:
                     errs.append(f"items.json[{iid}]: 技能书 teaches={teaches!r} 不在技能表")
                 if spec.get("slot") is not None:
                     errs.append(f"items.json[{iid}]: 技能书不应有槽位 {spec.get('slot')!r}")
+            if kind == "consumable":
+                consume = spec.get("consume")
+                if not isinstance(consume, dict):
+                    errs.append(f"items.json[{iid}]: 消耗品缺 consume 字典")
+                else:
+                    effect_c = consume.get("effect")
+                    if effect_c not in POTION_EFFECTS:
+                        errs.append(
+                            f"items.json[{iid}]: 未知 consume.effect {effect_c!r}")
+                    amount_c = consume.get("amount")
+                    if not isinstance(amount_c, int) or isinstance(amount_c, bool) \
+                            or amount_c <= 0:
+                        errs.append(f"items.json[{iid}]: consume.amount 必须为正整数")
+                    cd_c = consume.get("cooldown_ticks")
+                    if not isinstance(cd_c, int) or isinstance(cd_c, bool) or cd_c <= 0:
+                        errs.append(
+                            f"items.json[{iid}]: consume.cooldown_ticks 必须为正整数")
+                if spec.get("slot") is not None:
+                    errs.append(f"items.json[{iid}]: 消耗品不应有槽位 {spec.get('slot')!r}")
             for key in ("name", "weight", "durability", "level_req"):
                 if key not in spec:
                     errs.append(f"items.json[{iid}]: 缺字段 {key}")

@@ -600,6 +600,120 @@ def gate_death_penalty(data=None) -> tuple[bool, str]:
                   f"原地复活 {penalty.REVIVE_BASE_GOLD}+"
                   f"{penalty.REVIVE_GOLD_PER_LEVEL}×等级，只掉磨损")
 
+def gate_potion_and_sustain(data=None) -> tuple[bool, str]:
+    """药水与续航：九档齐备、冷却真的在拦、每个怪都掉药、自动喝药真会自己喝。
+
+    最容易被悄悄改坏的是**公共冷却**与**掉落覆盖**这两条：
+
+    * 冷却归零 → 背包里有几瓶就能在一个 tick 里灌几瓶，续航直接变成无敌，
+      而这条只写在 ``consume.cooldown_ticks`` 里，改表的人未必知道；
+    * 某个怪的药水组被删/挪位 → 穷的时候打不动又没有别的补给路，玩家只会
+      觉得"这游戏卡住了"。挪位更隐蔽：``roll_drops`` 的流名带组下标，
+      把药水组插到前面会把既有装备组的掉落结果**全部洗牌**。
+
+    前几条是数值口径，最后一条（6）是真跑一次手动 + 一次自动，
+    证明"喝药"与"自动喝药"这两条路都通着。
+    """
+    if data is None:
+        from mirsolo.data.loader import GameData
+
+        data = GameData.load()
+    from mirsolo.actor.factory import spawn_player
+    from mirsolo.bootstrap import build_session
+    from mirsolo.components import Bag, PotionState, Progression, Vitals
+    from mirsolo.items import potion
+    from mirsolo.progression.exp import apply_growth
+
+    bad: list[str] = []
+    items = {iid: spec for iid, spec in data.items["items"].items()
+             if spec.get("kind") == "consumable"}
+    if len(items) != 9:
+        bad.append(f"药水应该正好 9 档，现在 {len(items)} 件")
+
+    # 1) 三类效果都要有，否则某一职业直接没有续航（法师没蓝药就是根木棍）
+    effects = {spec.get("consume", {}).get("effect") for spec in items.values()}
+    for need in ("hp", "mp", "both"):
+        if need not in effects:
+            bad.append(f"缺 {need} 类药水（效果只剩 {sorted(effects)}）")
+
+    # 2) 冷却必须为正：归零就能同 tick 连灌
+    for item_id in sorted(items):
+        if potion.cooldown_of(data, item_id) <= 0:
+            bad.append(f"{item_id} 冷却为 0（可以在一个 tick 里连灌）")
+
+    # 3) 阈值必须是千分比，且不能是 0（0 = 永远不自动喝，等于这功能没做）
+    for name, value in (("AUTO_HP_PERMILLE", potion.AUTO_HP_PERMILLE),
+                        ("AUTO_MP_PERMILLE", potion.AUTO_MP_PERMILLE)):
+        if not 0 < value < 1000:
+            bad.append(f"{name}={value} 不在千分比区间 (0, 1000)")
+    if potion.BUY_BUNDLE <= 0:
+        bad.append(f"BUY_BUNDLE={potion.BUY_BUNDLE} 必须为正")
+
+    # 4) 药水不进拍卖行：量产物挂出去是噪音，还会把"底价高于回收价"拉歪
+    auctionable = sorted(i for i, s in items.items() if s.get("auction") is not None)
+    if auctionable:
+        bad.append(f"药水不该能寄卖：{auctionable}")
+
+    missing: list[str] = []
+    misplaced: list[str] = []
+    item_table = data.items["items"]
+
+    def kind_of(item_id: str) -> str:
+        # 掉落表里出现一个不存在的 id 时返回空串，而不是让门禁崩掉：
+        # ``--selfcheck`` 会故意往里面塞 ``no_such_item`` 去验别的门禁，本门禁
+        # 只是顺路扫一遍，认不出来就当"不是药水"，由"每个怪都掉药"报出来。
+        return item_table.get(item_id, {}).get("kind", "")
+
+    for monster_id, table in sorted(data.drops["drops"].items()):
+        groups = table.get("groups", [])
+        if not groups:
+            missing.append(monster_id)
+            continue
+        last = groups[-1].get("entries", [])
+        if not last or not all(kind_of(e["item"]) == "consumable" for e in last):
+            missing.append(monster_id)
+        for group in groups[:-1]:
+            if any(kind_of(e["item"]) == "consumable"
+                   for e in group.get("entries", [])):
+                misplaced.append(monster_id)
+                break
+    if missing:
+        bad.append(f"以下怪不掉药水：{sorted(set(missing))}")
+    if misplaced:
+        bad.append(f"药水组只能追加在末尾（挪位会洗掉既有掉落）：{sorted(set(misplaced))}")
+
+    # 6) 真喝一次（手动）+ 真自己喝一次（自动）
+    if not bad:
+        session = build_session(data=data, seed=1, map_id="biqi_field")
+        try:
+            player = spawn_player(session.world, data, class_id="warrior")
+            player.get(Progression).level = 30
+            apply_growth(player, data.classes["classes"]["warrior"])
+            vitals = player.get(Vitals)
+            vitals.hp = 40
+            player.get(Bag).add("hp_potion_m", 2)
+            got = potion.drink(player, data, "hp_potion_m", tick=0)
+            if got["hp"] <= 0 or player.get(Bag).items["hp_potion_m"] != 1:
+                bad.append("喝药没回血或没扣瓶")
+            if not potion.is_cooling(player.get(PotionState), 0):
+                bad.append("喝完没进冷却（可以同 tick 连灌）")
+            # 自动：不投任何意图，血掉到阈值以下应该自己喝
+            vitals.hp = 40
+            player.get(PotionState).ready_at = 0
+            session.step(1)
+            if player.get(Bag).items.get("hp_potion_m", 0) != 0:
+                bad.append("血低于 50% 却没有自动喝药（单机没有外挂，这档必须常开）")
+        finally:
+            session.shutdown()
+
+    if bad:
+        return False, "; ".join(bad)
+    cools = sorted({potion.cooldown_of(data, i) for i in items})
+    return True, (f"{len(items)} 档药水（hp/mp/both 齐备），公共冷却 {cools} 刻；"
+                  f"自动阈值 HP<{potion.AUTO_HP_PERMILLE}‰ / MP<{potion.AUTO_MP_PERMILLE}‰；"
+                  f"{len(data.drops['drops'])} 个怪都掉药水且药水组一律在末尾；"
+                  f"商店一次 {potion.BUY_BUNDLE} 瓶")
+
 GATES = [
     ("data-integrity", "九张数据表的引用完整性（掉落/刷新/技能职业/攻城可解析）", gate_data_integrity),
     ("data-files", "data/ 下九张表齐全且是合法 JSON", gate_data_files),
@@ -613,6 +727,8 @@ GATES = [
      gate_wear_and_repair),
     ("death-penalty", "死亡惩罚：兜底存在、原地复活有代价、绝不掉级",
      gate_death_penalty),
+    ("potion-and-sustain", "药水：九档齐备、公共冷却在拦、每个怪都掉药、自动喝药常开",
+     gate_potion_and_sustain),
     ("tests-registered", "run_tests.MODULES ↔ tests/test_*.py 双向一致", gate_tests_registered),
     ("readme-commands", "README 里的 python -m 目标都真实可导入", gate_readme_commands),
     ("readme-tree-real", "README 项目结构里的路径都真实存在", gate_tree_real),
@@ -873,6 +989,41 @@ def _selfcheck() -> int:
     else:
         failures += 1
         print(f"  FAIL death-penalty 未拦住免费原地复活（{detail}）")
+
+    # 20) potion-and-sustain：把小瓶的冷却写成 0 —— 背包有几瓶就能同 tick 灌几瓶
+    _saved_cd = game.items["items"]["hp_potion_s"]["consume"]["cooldown_ticks"]
+    game.items["items"]["hp_potion_s"]["consume"]["cooldown_ticks"] = 0
+    ok, detail = gate_potion_and_sustain(game)
+    game.items["items"]["hp_potion_s"]["consume"]["cooldown_ticks"] = _saved_cd
+    if not ok and "连灌" in detail:
+        print("  ok   potion-and-sustain 能拦住冷却为 0 的药水（不许同 tick 连灌）")
+    else:
+        failures += 1
+        print(f"  FAIL potion-and-sustain 未拦住冷却为 0 的药水（{detail}）")
+
+    # 21) potion-and-sustain 的另一半：把鸡的药水组删掉 —— 穷的时候就没补给路了
+    _saved_groups = list(game.drops["drops"]["ji"]["groups"])
+    game.drops["drops"]["ji"]["groups"] = _saved_groups[:-1]
+    ok, detail = gate_potion_and_sustain(game)
+    game.drops["drops"]["ji"]["groups"] = _saved_groups
+    if not ok and "掉药水" in detail:
+        print("  ok   potion-and-sustain 能拦住不掉药水的怪（两条腿不能只剩一条）")
+    else:
+        failures += 1
+        print(f"  FAIL potion-and-sustain 未拦住不掉药水的怪（{detail}）")
+
+    # 22) potion-and-sustain 的第三半：自动喝药阈值归零 = 这个功能等于没做
+    from mirsolo.items import potion as _potion
+
+    _saved_hp_gate = _potion.AUTO_HP_PERMILLE
+    _potion.AUTO_HP_PERMILLE = 0
+    ok, detail = gate_potion_and_sustain(game)
+    _potion.AUTO_HP_PERMILLE = _saved_hp_gate
+    if not ok and "千分比区间" in detail:
+        print("  ok   potion-and-sustain 能拦住阈值为 0（自动喝药不能是死代码）")
+    else:
+        failures += 1
+        print(f"  FAIL potion-and-sustain 未拦住阈值为 0（{detail}）")
 
     print(f"\nselfcheck: {'PASS' if failures == 0 else f'{failures} 条门禁形同虚设'}")
     return 0 if failures == 0 else 1

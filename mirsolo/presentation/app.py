@@ -42,16 +42,18 @@ from mirsolo.components import (
     Wear,
 )
 from mirsolo.actor import codex, mercenary, penalty
+from mirsolo.actor.systems import KEY_LAST_POTION, KEY_POTION_INTENT
 from mirsolo.economy import auction
 from mirsolo.economy.shop import (
     TradeError,
     buy,
     deposit,
     repair_all,
+    resupply,
     sell,
     withdraw,
 )
-from mirsolo.items import wear
+from mirsolo.items import potion, wear
 from mirsolo.items.equipment import EquipError, equip, recompute, unequip
 from mirsolo.items.rings import RingError, try_travel
 from mirsolo.presentation.hud import (
@@ -92,6 +94,13 @@ RING_KEY = pyglet.window.key.T
 #: 原地复活键。刻意不用 V——V 已经是仓库面板的开关；
 #: 同一个键在站立/倒地两种状态下含义不同，迟早按错。
 REVIVE_KEY = pyglet.window.key.R
+
+#: 喝药键：Q = 红药（回血），E = 蓝药（回蓝）。挑 WASD 左手边这两个，
+#: 是因为血见底的那一刻手就在那儿，不用挪开再找。
+POTION_KEYS = {
+    pyglet.window.key.Q: "hp",
+    pyglet.window.key.E: "mp",
+}
 
 #: 面板开关键 → 面板名。放在这里而不是散在 if 里：加面板只改这张表
 PANEL_KEYS = {
@@ -317,6 +326,9 @@ class MirsoloWindow(pyglet.window.Window):
         if symbol == REVIVE_KEY:
             self._revive_in_place()
             return
+        if symbol in POTION_KEYS:
+            self._drink(POTION_KEYS[symbol])
+            return
         # 技能栏 1..5（数字键与数字小键盘都收）：按一次放一次，
         # 长按不连发——连发交给冷却门控反而会让节奏变乱。
         if symbol in SKILL_KEYS:
@@ -383,7 +395,11 @@ class MirsoloWindow(pyglet.window.Window):
                 unequip(player, data, row.item)
                 self._say(f"脱下 {row.text.split('：')[-1]}")
             elif row.action == "buy":
-                got = buy(player, data, row.item)
+                # 药水按捆买，捆数与面板价签同一个出处（potion.BUY_BUNDLE）；
+                # 不照着买就会出现“价签写 7000、实际扣 700”的错账。
+                kind = data.items["items"].get(row.item, {}).get("kind")
+                count = potion.BUY_BUNDLE if kind == "consumable" else 1
+                got = buy(player, data, row.item, count)
                 self._say(f"买入 {row.text} −{got['paid']} 金")
             elif row.action == "sell":
                 got = sell(player, data, row.item)
@@ -467,7 +483,46 @@ class MirsoloWindow(pyglet.window.Window):
             return
         self._say(f"原地复活 -{got['paid']} 金（经验与背包都没掉）")
 
+    def _drink(self, want: str) -> None:
+        """喝药：只往世界投一个意图，真喝由 ``PotionSystem`` 在下一个 tick 做。
+
+        为什么不在窗口里直接调 ``potion.drink``：公共冷却的账写在
+        ``PotionState.ready_at`` 上、由系统维护，窗口层绕过去就等于开了
+        第二个入账口，表现层与 headless 会走出两套喝药节奏。与移动/攻击
+        同一条纪律——表现层只投意图。
+        """
+
+        player = self.session.world.get_entity("player")
+        if player is None or player.has(Downed):
+            return  # 倒地期间连喝药都不行，否则死亡惩罚就只剩掉东西了
+        self.session.world.set_data(KEY_POTION_INTENT, want)
+
+    def _report_potion(self) -> None:
+        """把上一次**手动**喝药的结果翻译成一句话。
+
+        自动喝药不写这个键（见 ``KEY_LAST_POTION`` 的说明）：它每 tick 都可能
+        发生，刷成提示就是噪音，血条动了本身就是反馈。
+        """
+
+        got = self.session.world.get_data(KEY_LAST_POTION)
+        if not got:
+            return
+        self.session.world.set_data(KEY_LAST_POTION, None)
+        if not got.get("ok"):
+            self._say(str(got.get("message", "喝不了")))
+            return
+        name = self.session.data.items["items"].get(
+            got["item"], {}).get("name", got["item"])
+        parts = []
+        if got.get("hp"):
+            parts.append(f"HP +{got['hp']}")
+        if got.get("mp"):
+            parts.append(f"MP +{got['mp']}")
+        joined = "　".join(parts)
+        self._say(f"喝下 {name}　{joined}　剩 {got['left']} 瓶")
+
     # ── 输入 → 意图 ─────────────────────────────────
+
 
     def _collect_intent(self) -> tuple[int, int]:
         key = pyglet.window.key
@@ -556,6 +611,7 @@ class MirsoloWindow(pyglet.window.Window):
             if target is not None:
                 self.session.queue_attack(self.session.world.get_entity("player"), target)
         self.session.engine.advance(self._last_real_dt)
+        self._report_potion()
 
         if player is not None:
             pos = player.get(Position)
@@ -632,6 +688,23 @@ class MirsoloWindow(pyglet.window.Window):
             self._hud_labels.append(Label(
                 text.text, x=text.x, y=text.y, font_size=text.size, font_name=FONT,
                 anchor_x=anchor, color=tuple(int(c * 255) for c in text.color)))
+
+        # 药水计数：画在 HUD 布局之外。``build_hud`` 的行位已经被
+        # test_presentation 钉住（右上统计是五行），加一行就会红；
+        # 而这一行纯粹是“还剩几瓶”的读数，不参与任何布局断言。
+        bag = player.get(Bag)
+        if bag is not None:
+            red = blue = 0
+            for item_id, count in bag.items.items():
+                hp_gain, mp_gain = potion.gains(self.session.data, item_id)
+                if hp_gain:
+                    red += int(count)
+                if mp_gain:
+                    blue += int(count)
+            self._hud_labels.append(Label(
+                f"Q 红药 ×{red}　E 蓝药 ×{blue}",
+                x=self.width - 12, y=self.height - 12 - 68, font_size=12,
+                font_name=FONT, anchor_x="right", color=(214, 224, 236, 255)))
 
         # 技能栏：底槽 + 就绪高亮 + 键位/技能名/熟练度
         for slot in layout.skills:
@@ -860,7 +933,8 @@ def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
                       gold: int = 0, mercs: tuple[str, ...] = (),
                       codex_kills: int = 0, bag: bool = False,
                       wear_left: int | None = None,
-                      dead: bool = False) -> None:
+                      dead: bool = False, hurt: bool = False,
+                      potions: bool = False) -> None:
     """验收辅助：提等级 / 发金币 / 发一套装备 / 雇佣兵 / 记图鉴。
 
     刻意**复用游戏内路径**（``apply_growth`` + ``learn`` + ``equip`` + ``hire`` +
@@ -877,7 +951,12 @@ def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
       当场穿掉了，拍卖行/商店面板的截图里背包是空的，看不出版式；
     * ``wear_left``——把身上每件装备磨到只剩该千分比（0 = 全磨穿）：
       磨损是打出来的，验收只能倒着造，但走的是 ``wear.add_wear`` +
-      ``recompute`` 同一条规则，不是直接改面板文字。
+      ``recompute`` 同一条规则，不是直接改面板文字；
+    * ``potions``——走商店 ``resupply`` **真买一批**（钱与负重两道门都在，
+      所以最后补到几瓶是算出来的，不是写死的）；金币不够会打一行提示并跳过，
+      配合 ``--gold`` 使用；
+    * ``hurt``——把血/蓝打到自动阈值以下（HP 400‰ / MP 200‰），开窗第一刻
+      就能看到自动喝药启动。刻意**不碰** ``PotionState``：喝不喝由系统自己决定。
     """
     player = session.world.get_entity("player")
     if player is None:
@@ -907,6 +986,18 @@ def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
             left = max(0, min(total, total * int(wear_left) // 1000))
             wear.add_wear(session.data, book, item_id, total - left)
         recompute(player, session.data)
+    if potions:
+        try:
+            got = resupply(player, session.data)
+            print(f"[验收] 补给 {got['items']} 花 {got['paid']} 金，余 {got['gold']}")
+        except TradeError as exc:
+            print(f"[验收] 补给没成（{exc.code}）：{exc} —— 加 --gold N 再试")
+    if hurt:
+        vitals = player.get(Vitals)
+        if vitals is not None:
+            vitals.hp = max(1, int(vitals.max_hp) * 400 // 1000)
+            if int(vitals.max_mp) > 0:
+                vitals.mp = int(vitals.max_mp) * 200 // 1000
     if dead:
         # 验收开关：只负责致死那一下；倒地 → 结算 → 复活全在
         # ``DeathPenaltySystem`` + ``actor.penalty`` 里，避免两套实现分叉
@@ -950,7 +1041,8 @@ def launch(*, seed: int = 20261019, map_id: str = "biqi_field",
            gold: int = 0, mercs: tuple[str, ...] = (),
            codex_kills: int = 0, bag: bool = False,
            wear_left: int | None = None,
-           dead: bool = False) -> None:
+           dead: bool = False, hurt: bool = False,
+           potions: bool = False) -> None:
     """装配会话 + 开窗（CLI 与测试共用入口）。
 
     ``panel`` 只用于验收截图：开窗时就打开某个面板（``character``/``mercenary``/
@@ -966,7 +1058,7 @@ def launch(*, seed: int = 20261019, map_id: str = "biqi_field",
     prepare_character(session, class_id=player_class, level=level,
                       learn_all=learn, gear=gear, gold=gold, mercs=mercs,
                       codex_kills=codex_kills, bag=bag, wear_left=wear_left,
-                      dead=dead)
+                      dead=dead, hurt=hurt, potions=potions)
     if siege is not None:
         start_siege(session, siege)
     window = MirsoloWindow(session=session, width=width, height=height)
