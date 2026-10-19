@@ -194,6 +194,80 @@ def test_hud_shield_text_only_when_active():
     assert any(t.text == "盾 12/16" for t in on.texts)
 
 
+# ── 攻城状态条 ─────────────────────────────────────
+
+#: 一份"刚开局"的战役快照（字面量抄自 data/sieges.json，别改成调生产函数现算）
+SIEGE_RUNNING = {
+    "siege": "sabak", "name": "沙巴克攻城", "status": "running",
+    "wave": 0, "wave_count": 3, "wave_name": "外城",
+    "objective": "gate", "objective_name": "外城城门",
+    "objective_hp": 1200, "objective_max": 1200, "guards_alive": 7,
+    "elapsed": 0, "limit": 18000, "finished": False,
+}
+
+
+@case
+def test_no_siege_banner_outside_campaign():
+    """不在攻城时不能挂一条空状态条——那是纯占屏。"""
+    assert _layout().siege is None
+    assert _layout(siege=None).siege is None
+    assert _layout(siege=dict(SIEGE_RUNNING, finished=True)).siege is None
+
+
+@case
+def test_siege_banner_texts_and_bar():
+    banner = _layout(siege=SIEGE_RUNNING).siege
+    assert banner is not None
+    assert banner.title == "沙巴克攻城 · 外城城门"
+    assert banner.wave_text == "第 1/3 波 · 外城"
+    assert banner.guards_text == "守军 7"
+    assert banner.clock_text == "剩余 30:00", banner.clock_text
+    assert banner.objective.ratio == 1.0
+    assert banner.urgent is False
+
+
+@case
+def test_siege_banner_bar_follows_hp():
+    """耐久 300/1200 = 0.25，填充宽度按比例。"""
+    banner = _layout(siege=dict(SIEGE_RUNNING, objective_hp=300)).siege
+    assert abs(banner.objective.ratio - 0.25) < 1e-9
+    assert abs(banner.objective.fill.w - banner.objective.frame.w * 0.25) < 1e-9
+    assert banner.objective.caption == "300/1200"
+
+
+@case
+def test_siege_banner_goes_urgent_when_clock_is_low():
+    """剩 1000/18000 刻（≈1:40）必须标红；剩一半不标。"""
+    ok_banner = _layout(siege=dict(SIEGE_RUNNING, elapsed=9000)).siege
+    assert ok_banner.urgent is False
+    assert ok_banner.clock_text == "剩余 15:00", ok_banner.clock_text
+
+    late = _layout(siege=dict(SIEGE_RUNNING, elapsed=17000)).siege
+    assert late.urgent is True
+    assert late.clock_text == "剩余 1:40", late.clock_text
+
+
+@case
+def test_siege_banner_fits_narrow_window():
+    """窄窗口下不能横向溢出（比赛边框出屏还难看得多）。"""
+    banner = _layout(siege=SIEGE_RUNNING, width=360, height=200).siege
+    assert banner.frame.x >= 0
+    assert banner.frame.right <= 360
+    assert banner.frame.y >= 0
+    assert banner.frame.top <= 200
+
+
+@case
+def test_siege_banner_second_wave_numbers():
+    banner = _layout(siege=dict(
+        SIEGE_RUNNING, wave=1, wave_name="内城", objective="inner_gate",
+        objective_name="内城城门", objective_hp=1800, objective_max=1800,
+        guards_alive=7, elapsed=3000)).siege
+    assert banner.wave_text == "第 2/3 波 · 内城"
+    assert banner.title == "沙巴克攻城 · 内城城门"
+    assert banner.clock_text == "剩余 25:00", banner.clock_text
+
+
 def run() -> tuple[int, int]:
     passed = failed = 0
     for fn in CASES:

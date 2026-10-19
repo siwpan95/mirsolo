@@ -61,32 +61,35 @@ mirsolo/
     world/
       spawn.py          按地图刷新表铺怪（开局与换图同一条路径）
       travel.py         传送点判定与换图（PortalSystem，踩上去就过）
+    siege/
+      campaign.py       沙巴克攻城战役（三波目标/准入锁定/增援/胜负结算，SiegeSystem）
     presentation/
       iso_camera.py     真等距相机（35.264° 俯角 / 正交投影 / 跟随缩放）
       scene.py          实例收集与深度排序（纯数据，无 GL）
-      hud.py            HP/MP/EXP 条与状态文本（纯数据，无 GL）
+      hud.py            HP/MP/EXP 条、状态文本与攻城状态条（纯数据，无 GL）
       panels.py         角色/商店/仓库面板布局与命中测试（纯数据，无 GL）
       renderer.py       pyglet 2.1 ShaderProgram 渲染（地面网格 1 draw / 实例 1 draw）
       app.py            窗口、输入（WASD/空格/滚轮/鼠标点面板）与固定步长循环
     data/
-      loader.py         七张表加载 + 结构校验 + 引用校验
+      loader.py         九张表加载 + 结构校验 + 引用校验
     cli/
       smoke.py          headless 冒烟（10Hz 定步推演）
       play.py           进游戏窗口（--shot 单帧截图，无 GL 时给出可操作提示）
-  data/                 七张数值表（手录，1.76 骨架口径）
+  data/                 九张数值表（手录，1.76 骨架口径）
     exp.json            1-50 级经验曲线
     classes.json        三职业基础属性与成长（含 mc/sc）
     skills.json         技能表（三职业 16 技 + 技能书；P1-S2 起全部 kind 有行为）
     monsters.json       怪物表（17 种，AI 三档：passive/aggressive/elite）
     items.json          装备 8 件 + 技能书 16 本（book 的 teaches 双向校验）
     drops.json          掉落表（组权重 + gold 区间）
-    maps.json           地图与刷新/传送表（8 张，等级带 1-50 连续）
+    maps.json           地图与刷新/传送表（11 张，等级带 1-52 连续，含战役图 sabak）
+    sieges.json         攻城战役表（波次/目标/守军/增援/奖励）
   docs/
     数据口径.md          逐表来源、近似标记与已知差异
     借鉴记账.md          借鉴对象 / 许可证 / 范围 / 禁区
   scripts/verify.py     7 条机械门禁（含 --selfcheck 注入破坏自检）
   scripts/inject_check.py  注入验证：把生产代码改坏，确认回归真的会红
-  tests/run_tests.py    测试聚合 runner（13 模块）
+  tests/run_tests.py    测试聚合 runner（14 模块）
 ```
 
 ## 设计要点
@@ -105,16 +108,22 @@ mirsolo/
 引用的物品/怪物/职业/传送目标由 `GameData.cross_check()` 校验，
 `scripts/verify.py` 把它做成门禁。
 
-**5. MMO → 单机的转化。** 沙巴克攻城改为"佣兵小队 vs 守军 AI 分层布防"，
-摆摊经济改为商店 + 市场模拟，抢 BOSS 改为确定性种子世界（掉落熵进存档）。
-完整转化表见计划书；P0 只落"打怪-掉装-升级"这条最小闭环。
+**5. MMO → 单机的转化。** 沙巴克攻城改为"佣兵小队 vs 守军 AI 分层布防"：
+三道据点（外城门→内城门→旗台）依次推进，只有当前波次目标可被打
+（其余目标 `invulnerable`，打了不结算而不是"砍得动"），守军按波次铺兵 +
+定时增援（`max` 封顶），玩家倒下或超时判负。目标 `kind="guard"`
+不走死亡奖励，奖励由战役结算统一发。顶部战役状态条常驻显示
+波次/目标耐久/守军数/剩余时间。摆摊经济改为商店 + 市场模拟，
+抢 BOSS 改为确定性种子世界（掉落熵进存档）。完整转化表见计划书。
 
 ## 测试与验收
 
 ```bat
-python -m tests.run_tests              :: 13 个模块，155 项无窗口单测
+python -m tests.run_tests              :: 14 个模块，185 项无窗口单测
 python -m mirsolo.cli.smoke --ticks 3000   :: headless 冒烟（含确定性复跑）
-python scripts\verify.py               :: 6 条机械门禁（<1 秒）
+python -m mirsolo.cli.play --level 50 --gear --siege sabak --shot shots\siege.png
+                                       :: 攻城验收：开窗即开战，顶部战役状态条
+python scripts\verify.py               :: 7 条机械门禁（<1 秒）
 python scripts\verify.py --list        :: 只看门禁清单
 python scripts\verify.py --verbose     :: 每条门禁的证据
 python scripts\verify.py --selfcheck   :: 注入破坏，证明门禁拦得住
@@ -124,8 +133,9 @@ python scripts\verify.py --selfcheck   :: 注入破坏，证明门禁拦得住
 
 | 门禁 | 断言 |
 |------|------|
-| `data-integrity` | 掉落/刷新/技能职业引用全部可解析，无死链 |
-| `data-files` | 七张表齐全且是合法 JSON |
+| `data-integrity` | 掉落/刷新/技能职业/攻城引用全部可解析，无死链 |
+| `data-files` | 九张表齐全且是合法 JSON |
+| `map-bands` | 等级带连续 + 传送网有向全连通（战役图除外，但必须声明 `base_map`） |
 | `tests-registered` | `run_tests.MODULES` ↔ `tests/test_*.py` **双向**一致 |
 | `readme-commands` | README 里每条 `python -m` 目标都真实可导入 |
 | `readme-tree-real` | README 项目结构里的路径都真实存在 |
@@ -135,9 +145,9 @@ python scripts\verify.py --selfcheck   :: 注入破坏，证明门禁拦得住
 
 | 批次 | 内容 | 状态 |
 |------|------|------|
-| P0 | 战士垂直切片：比奇省外围 + 矿洞、6 怪、8 装、练到 20 级 | 逻辑核 ✅ / 表现层 ⬜ |
-| P1 | 三职业全技能、地图带（蜈蚣洞→祖玛）、沃玛/祖玛 BOSS、商店仓库、技能熟练度 | ⬜ |
-| P2 | 沙巴克攻城战役、赤月/牛魔、特戒与运 9、拍卖行、佣兵与图鉴 | ⬜ |
+| P0 | 战士垂直切片：比奇省外围 + 矿洞、6 怪、8 装、练到 20 级 | 逻辑核 ✅ / 表现层 ✅ |
+| P1 | 三职业全技能、地图带（蜈蚣洞→祖玛）、沃玛/祖玛 BOSS、商店仓库、技能熟练度 | ✅ |
+| P2 | 沙巴克攻城战役、赤月/牛魔、特戒与运 9、拍卖行、佣兵与图鉴 | 攻城 ✅ / 其余 ⬜ |
 
 ## 许可
 

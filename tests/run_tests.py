@@ -35,6 +35,7 @@ MODULES = [
     "test_economy",
     "test_travel",
     "test_panels",
+    "test_siege",
 ]
 
 PASS_MARKER = "ALL_MIRSOLO_TESTS_PASSED"

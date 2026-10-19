@@ -24,11 +24,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-DATA_TABLES = ("exp", "classes", "skills", "monsters", "items", "drops", "maps")
+DATA_TABLES = ("exp", "classes", "skills", "monsters", "items", "drops", "maps", "sieges")
 
 
 def gate_data_integrity() -> tuple[bool, str]:
-    """七张数据表的引用完整性（掉落/刷新/技能职业全部可解析）。"""
+    """九张数据表的引用完整性（掉落/刷新/技能职业/攻城全部可解析）。"""
     from mirsolo.data.loader import GameData
 
     game = GameData.load()
@@ -39,7 +39,7 @@ def gate_data_integrity() -> tuple[bool, str]:
 
 
 def gate_data_files() -> tuple[bool, str]:
-    """data/ 下七张表齐全且是合法 JSON。"""
+    """data/ 下九张表齐全且是合法 JSON。"""
     missing = [f"{name}.json" for name in DATA_TABLES
                if not (ROOT / "data" / f"{name}.json").exists()]
     if missing:
@@ -52,7 +52,7 @@ def gate_data_files() -> tuple[bool, str]:
             bad.append(f"{name}.json: {exc}")
     if bad:
         return False, "; ".join(bad)
-    return True, f"7/7 张表可解析"
+    return True, f"{len(DATA_TABLES)}/{len(DATA_TABLES)} 张表可解析"
 
 
 def gate_tests_registered() -> tuple[bool, str]:
@@ -157,15 +157,19 @@ def gate_package_imports() -> tuple[bool, str]:
     return True, f"{len(modules)} 个模块可导入"
 
 
-def gate_map_bands() -> tuple[bool, str]:
+def gate_map_bands(data=None) -> tuple[bool, str]:
     """地图带必须**等级连续**且**传送图连通**。
 
     这两件事都是"看表看不出来、进游戏才知道"的问题：
     等级带断一档 → 玩家卡在练级断层；传送不连通 → 后段地图根本走不到。
-    """
-    from mirsolo.data.loader import GameData
 
-    data = GameData.load()
+    ``data`` 可传入已改动的 ``GameData``（``--selfcheck`` 靠这个注入破坏，
+    免得为了自检去改磁盘上的真数据）。
+    """
+    if data is None:
+        from mirsolo.data.loader import GameData
+
+        data = GameData.load()
     maps = data.maps["maps"]
     # 1) 等级带连续：按起点排序后，后一张的起点不得高于前一张的终点 +1
     bands = sorted(((spec["level_range"][0], spec["level_range"][1], mid)
@@ -183,6 +187,22 @@ def gate_map_bands() -> tuple[bool, str]:
     # 2) 传送图**有向**连通：从最低等级那张图出发，只沿 portals[].to 走。
     #    不能把"对方的出口"当成本图的入口——那会让"只有出口、没有入口"的
     #    孤岛图也被判成连通（实测注入验证时正是这个漏洞）。
+    #
+    #    例外：**战役图**（``sieges.json`` 里声明的）不是靠传送点进的，
+    #    而是 ``start_siege`` 直接换图。但它们必须给出 ``base_map``——
+    #    否则"进得去出不来"就没人管了。例外名单从数据表推导，
+    #    不在这里写死地图名（写死等于门禁自己给自己开后门）。
+    campaign_maps = {}
+    for siege_id, spec in (data.sieges.get("sieges") or {}).items():
+        campaign_maps[spec["map"]] = spec.get("base_map")
+    for map_id, base in campaign_maps.items():
+        if map_id not in maps:
+            return False, f"战役 {map_id} 的地图不存在"
+        if base is None:
+            return False, f"战役图 {map_id} 没有 base_map（进去就出不来）"
+        if base not in maps:
+            return False, f"战役图 {map_id} 的 base_map {base} 不存在"
+
     start = bands[0][2]
     seen = {start}
     queue = [start]
@@ -193,15 +213,15 @@ def gate_map_bands() -> tuple[bool, str]:
             if nxt in maps and nxt not in seen:
                 seen.add(nxt)
                 queue.append(nxt)
-    unreachable = sorted(set(maps) - seen)
+    unreachable = sorted(set(maps) - seen - set(campaign_maps))
     if unreachable:
         return False, f"按传送方向走不到的图：{unreachable}"
-    return True, f"{len(maps)} 张图，1-{top} 级连续且全连通"
+    return True, f"{len(maps)} 张图（含 {len(campaign_maps)} 张战役图），1-{top} 级连续且全连通"
 
 
 GATES = [
-    ("data-integrity", "七张数据表的引用完整性（掉落/刷新/技能职业可解析）", gate_data_integrity),
-    ("data-files", "data/ 下七张表齐全且是合法 JSON", gate_data_files),
+    ("data-integrity", "九张数据表的引用完整性（掉落/刷新/技能职业/攻城可解析）", gate_data_integrity),
+    ("data-files", "data/ 下九张表齐全且是合法 JSON", gate_data_files),
     ("map-bands", "地图等级带连续且传送图全连通", gate_map_bands),
     ("tests-registered", "run_tests.MODULES ↔ tests/test_*.py 双向一致", gate_tests_registered),
     ("readme-commands", "README 里的 python -m 目标都真实可导入", gate_readme_commands),
@@ -258,6 +278,31 @@ def _selfcheck() -> int:
         else:
             failures += 1
             print("  FAIL readme-tree-real 未拦住不存在的路径")
+
+    # 4) map-bands：战役图例外不能变成"后门"——
+    #    把 sabak 的 base_map 抹掉，门禁必须红（进去就出不来的战役图不该放行）。
+    sieges = game.sieges["sieges"]["sabak"]
+    saved_base = sieges.get("base_map")
+    sieges["base_map"] = None
+    ok, detail = gate_map_bands(game)
+    sieges["base_map"] = saved_base
+    if not ok and "base_map" in detail:
+        print("  ok   map-bands 能拦住没有 base_map 的战役图")
+    else:
+        failures += 1
+        print("  FAIL map-bands 未拦住没有 base_map 的战役图")
+
+    # 5) map-bands 的另一半：真把一张图从传送网里摘掉，必须报"走不到"
+    saved_portals = list(game.maps["maps"]["zuma_temple"]["portals"])
+    game.maps["maps"]["zuma_temple"]["portals"] = [
+        p for p in saved_portals if p.get("to") != "chiyue_valley"]
+    ok, detail = gate_map_bands(game)
+    game.maps["maps"]["zuma_temple"]["portals"] = saved_portals
+    if not ok and "走不到" in detail:
+        print("  ok   map-bands 能拦住传送网断开（放行战役图不等于放行孤岛）")
+    else:
+        failures += 1
+        print("  FAIL map-bands 未拦住传送网断开")
 
     print(f"\nselfcheck: {'PASS' if failures == 0 else f'{failures} 条门禁形同虚设'}")
     return 0 if failures == 0 else 1

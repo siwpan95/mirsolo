@@ -40,6 +40,7 @@ from mirsolo.actor.systems import (
 from mirsolo.combat.resolver import CombatContext, CombatResolver
 from mirsolo.data.loader import GameData
 from mirsolo.skills.engine import KEY_SKILL_INTENTS, SkillSystem
+from mirsolo.siege.campaign import SiegeSystem
 from mirsolo.world.travel import PortalSystem
 
 DEFAULT_SEED = 20261019
@@ -169,6 +170,7 @@ def build_session(
     world.add_system(AttackSystem(ctx))
     world.add_system(death_system)
     world.add_system(RespawnSystem(data=game_data, seed=seed, tick_dt=tick_dt))
+    world.add_system(SiegeSystem(game_data, seed=seed, ctx=ctx))  # p50：伤害结算之后推进
     world.add_system(PortalSystem())  # 最后跑：先结算完这一 tick 的移动/攻击
 
     session = GameSession(

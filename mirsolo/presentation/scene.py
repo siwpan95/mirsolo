@@ -13,9 +13,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from mirsolo.components import Identity, Position, Vitals
+from mirsolo.components import Identity, Position, SiegeObjective, Vitals
 
 RGBA = tuple[float, float, float, float]
+
+#: 攻城目标配色：可打（暗砖红）/ 非当前波次（灰蓝，锁住）
+OBJECTIVE_COLOR: RGBA = (0.62, 0.24, 0.20, 1.0)
+OBJECTIVE_LOCKED_COLOR: RGBA = (0.34, 0.36, 0.42, 1.0)
 
 
 def _hash01(seed: int, a: int, b: int) -> float:
@@ -120,6 +124,20 @@ def build_instances(world, data, *, player_eid: str = "player") -> list[Instance
                 sx=0.62, sy=0.62, sz=1.45,
                 color=PLAYER_COLOR, kind="player",
                 eid=entity.eid or player_eid,
+            ))
+            continue
+        # 攻城目标（城门/旗台）：画成又宽又矮的色块，和怪一眼能分开
+        if ident.kind == "guard":
+            invulnerable = False
+            objective = entity.get(SiegeObjective)
+            if objective is not None:
+                invulnerable = objective.invulnerable
+            instances.append(Instance(
+                x=pos.x, y=pos.y, z=0.0,
+                sx=1.9, sy=1.9, sz=1.0 if ident.species != "banner" else 1.8,
+                color=OBJECTIVE_COLOR if not invulnerable else OBJECTIVE_LOCKED_COLOR,
+                kind="guard",
+                eid=entity.eid or "",
             ))
             continue
         if ident.kind != "monster":

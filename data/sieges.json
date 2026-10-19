@@ -1,0 +1,59 @@
+{
+  "meta": {
+    "version": "1.76-ref",
+    "note": "沙巴克攻城战役（单机转化）：原版是行会争沙城，单机改成「攻城小队 vs 守军分层布防」。一波守军守一道据点，打掉城门→内城→旗台；旗台倒下即攻城成功，玩家倒下即失败。守军按波次递增、带增援，逼玩家用技能与补给而不是站着硬拼。",
+    "source": "docs/数据口径.md#siege"
+  },
+  "sieges": {
+    "sabak": {
+      "name": "沙巴克攻城",
+      "map": "sabak",
+      "base_map": "zuma_temple",
+      "player_spawn": [8, 32],
+      "objective": "banner",
+      "time_limit_ticks": 18000,
+      "waves": [
+        {
+          "name": "外城",
+          "objective": "gate",
+          "objective_hp": 1200,
+          "objective_at": [48, 32],
+          "guards": [
+            {"monster": "zumma_weishi", "count": 4, "at": [40, 26], "spread": 6},
+            {"monster": "heiming_zhanshi", "count": 3, "at": [40, 38], "spread": 6}
+          ],
+          "reinforce": {"monster": "zumma_weishi", "count": 1, "every_ticks": 600, "max": 4}
+        },
+        {
+          "name": "内城",
+          "objective": "inner_gate",
+          "objective_hp": 1800,
+          "objective_at": [56, 32],
+          "guards": [
+            {"monster": "zumma_weishi", "count": 4, "at": [52, 26], "spread": 5},
+            {"monster": "emo_gongjianshou", "count": 3, "at": [52, 38], "spread": 5}
+          ],
+          "reinforce": {"monster": "emo_gongjianshou", "count": 1, "every_ticks": 450, "max": 5}
+        },
+        {
+          "name": "旗台",
+          "objective": "banner",
+          "objective_hp": 2600,
+          "objective_at": [60, 32],
+          "guards": [
+            {"monster": "zumma_jiaozhu", "count": 1, "at": [60, 30], "spread": 0},
+            {"monster": "zumma_weishi", "count": 4, "at": [58, 36], "spread": 5},
+            {"monster": "heiming_zhanshi", "count": 3, "at": [58, 28], "spread": 5}
+          ],
+          "reinforce": {"monster": "zumma_weishi", "count": 2, "every_ticks": 300, "max": 6}
+        }
+      ],
+      "rewards": {
+        "gold": 20000,
+        "items": [{"item": "zhongxingkuijia", "count": 1}, {"item": "zhanmadao", "count": 1}],
+        "exp": 12000,
+        "title": "沙巴克城主"
+      }
+    }
+  }
+}

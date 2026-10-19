@@ -1,7 +1,7 @@
 {
   "meta": {
     "version": "1.76-ref",
-    "note": "P1 八张图等级带连续：比奇省外围 1-10 → 矿洞 11-20 → 蜈蚣洞 20-26 → 半兽古墓 26-33 → 沃玛寺庙 33-40 → 石墓阵 40-44 → 封魔谷 44-47 → 祖玛寺庙 47-50。respawn_seconds 是该刷点自己的补刷间隔（教主 10-15 分钟）。",
+    "note": "P2 地图带：比奇省外围 1-10 → 矿洞 11-20 → 蜈蚣洞 20-26 → 半兽古墓 26-33 → 沃玛寺庙 33-40 → 石墓阵 40-44 → 封魔谷 44-47 → 祖玛寺庙 47-50 → 赤月峡谷 50-51 → 牛魔洞穴 51-52；沙巴克城是攻城战役图（守军由 sieges.json 投放，常规刷新为空）。respawn_seconds 是该刷点自己的补刷间隔（教主 10-15 分钟）。",
     "source": "docs/数据口径.md#maps"
   },
   "maps": {
@@ -358,6 +358,124 @@
             4
           ],
           "name": "出口"
+        },
+        {
+          "to": "chiyue_valley",
+          "at": [
+            60,
+            60
+          ],
+          "name": "赤月峡谷"
+        }
+      ]
+    },
+    "chiyue_valley": {
+      "name": "赤月峡谷",
+      "kind": "dungeon",
+      "level_range": [
+        50,
+        51
+      ],
+      "size": [
+        64,
+        64
+      ],
+      "seed_role": "dungeon",
+      "safe_zone": false,
+      "spawns": [
+        {
+          "monster": "zumma_weishi",
+          "count": 10,
+          "respawn_seconds": 80
+        },
+        {
+          "monster": "emo_gongjianshou",
+          "count": 6,
+          "respawn_seconds": 70
+        }
+      ],
+      "portals": [
+        {
+          "to": "zuma_temple",
+          "at": [
+            4,
+            4
+          ],
+          "name": "出口"
+        },
+        {
+          "to": "niumo_cave",
+          "at": [
+            60,
+            60
+          ],
+          "name": "牛魔洞穴"
+        }
+      ]
+    },
+    "niumo_cave": {
+      "name": "牛魔洞穴",
+      "kind": "dungeon",
+      "level_range": [
+        51,
+        52
+      ],
+      "size": [
+        64,
+        64
+      ],
+      "seed_role": "dungeon",
+      "safe_zone": false,
+      "spawns": [
+        {
+          "monster": "zumma_weishi",
+          "count": 8,
+          "respawn_seconds": 80
+        },
+        {
+          "monster": "heiming_zhanshi",
+          "count": 8,
+          "respawn_seconds": 70
+        },
+        {
+          "monster": "zumma_jiaozhu",
+          "count": 1,
+          "respawn_seconds": 900
+        }
+      ],
+      "portals": [
+        {
+          "to": "chiyue_valley",
+          "at": [
+            4,
+            4
+          ],
+          "name": "出口"
+        }
+      ]
+    },
+    "sabak": {
+      "name": "沙巴克城",
+      "kind": "town",
+      "level_range": [
+        50,
+        52
+      ],
+      "size": [
+        64,
+        64
+      ],
+      "seed_role": "siege",
+      "safe_zone": false,
+      "spawns": [],
+      "portals": [
+        {
+          "to": "zuma_temple",
+          "at": [
+            4,
+            4
+          ],
+          "name": "撤军"
         }
       ]
     }

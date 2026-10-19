@@ -40,6 +40,9 @@ CLASSES = ("warrior", "mage", "taoist")
 #: 物品大类：装备 / 技能书（P1-S2 起；消耗品待 P2 药水批次）
 ITEM_KINDS = frozenset({"equip", "book"})
 
+#: 攻城目标类型：城门 / 内城门 / 旗台（旗台倒下 = 战役胜利）
+SIEGE_OBJECTIVES = frozenset({"gate", "inner_gate", "banner"})
+
 #: 技能 kind 全集（数据面事实的唯一定义处；mirsolo/skills/engine.py 从这里导入）
 SKILL_KINDS = frozenset({
     "physical", "physical_aoe", "magic", "magic_aoe", "taoist",
@@ -65,6 +68,7 @@ class GameData:
     items: dict
     drops: dict
     maps: dict
+    sieges: dict = field(default_factory=dict)
     data_dir: Path = field(default_factory=data_dir_default)
     errors: list[str] = field(default_factory=list)
 
@@ -82,6 +86,7 @@ class GameData:
             items=_read_json(base / "items.json"),
             drops=_read_json(base / "drops.json"),
             maps=_read_json(base / "maps.json"),
+            sieges=_read_json(base / "sieges.json"),
             data_dir=base,
         )
         game.errors = game.validate() + game.cross_check()
@@ -115,6 +120,9 @@ class GameData:
 
     def skill(self, skill_id: str) -> dict:
         return self.skills["skills"][skill_id]
+
+    def siege(self, siege_id: str) -> dict:
+        return self.sieges["sieges"][siege_id]
 
     # ── 校验：结构层 ────────────────────────────────
 
@@ -220,6 +228,61 @@ class GameData:
                     errs.append(f"maps.json[{map_id}]: 刷新 {spawn.get('monster')!r} 数量非正")
                 if int(spawn.get("respawn_seconds", 0)) <= 0:
                     errs.append(f"maps.json[{map_id}]: 刷新 {spawn.get('monster')!r} 间隔非正")
+
+        # 攻城战役：结构层（波次/目标/坐标在图内）+ 奖励可解析
+        for siege_id, spec in self.sieges.get("sieges", {}).items():
+            map_id = spec.get("map")
+            map_spec = self.maps["maps"].get(map_id or "")
+            if map_spec is None:
+                errs.append(f"sieges.json[{siege_id}]: 地图 {map_id!r} 不存在")
+                continue
+            width, height = map_spec.get("size", (0, 0))
+
+            def _in_bounds(point, label: str) -> None:
+                if not point or len(point) != 2:
+                    errs.append(f"sieges.json[{siege_id}]: {label} 坐标缺失")
+                    return
+                if not (0 <= point[0] < width and 0 <= point[1] < height):
+                    errs.append(f"sieges.json[{siege_id}]: {label} 坐标 {tuple(point)} "
+                                f"越界，地图 {width}x{height}")
+
+            _in_bounds(spec.get("player_spawn"), "player_spawn")
+            waves = spec.get("waves") or []
+            if not waves:
+                errs.append(f"sieges.json[{siege_id}]: 没有任何波次")
+            seen_banner = False
+            for index, wave in enumerate(waves):
+                tag = f"{siege_id}.waves[{index}]"
+                if wave.get("objective") not in SIEGE_OBJECTIVES:
+                    errs.append(f"sieges.json[{tag}]: 未知目标 {wave.get('objective')!r}")
+                if int(wave.get("objective_hp", 0)) <= 0:
+                    errs.append(f"sieges.json[{tag}]: objective_hp 必须为正")
+                _in_bounds(wave.get("objective_at"), f"{tag}.objective_at")
+                for guard in wave.get("guards", []):
+                    if guard.get("monster") not in self.monsters["monsters"]:
+                        errs.append(f"sieges.json[{tag}]: 守军 {guard.get('monster')!r} 不存在")
+                    if int(guard.get("count", 0)) <= 0:
+                        errs.append(f"sieges.json[{tag}]: 守军 {guard.get('monster')!r} 数量非正")
+                    _in_bounds(guard.get("at"), f"{tag}.{guard.get('monster')}.at")
+                reinforce = wave.get("reinforce")
+                if reinforce:
+                    if reinforce.get("monster") not in self.monsters["monsters"]:
+                        errs.append(f"sieges.json[{tag}]: 增援 {reinforce.get('monster')!r} 不存在")
+                    if int(reinforce.get("every_ticks", 0)) <= 0:
+                        errs.append(f"sieges.json[{tag}]: 增援间隔必须为正")
+                    if int(reinforce.get("max", 0)) <= 0:
+                        errs.append(f"sieges.json[{tag}]: 增援上限必须为正")
+                if wave.get("objective") == "banner":
+                    seen_banner = True
+            # 没有旗台的战役没有"胜利条件"，玩家会一直打下去
+            if not seen_banner:
+                errs.append(f"sieges.json[{siege_id}]: 缺少 objective=banner 的终局波次")
+            rewards = spec.get("rewards") or {}
+            for entry in rewards.get("items", []):
+                if entry.get("item") not in self.items["items"]:
+                    errs.append(f"sieges.json[{siege_id}]: 奖励物品 {entry.get('item')!r} 不存在")
+            if int(spec.get("time_limit_ticks", 0)) <= 0:
+                errs.append(f"sieges.json[{siege_id}]: time_limit_ticks 必须为正")
 
         return errs
 

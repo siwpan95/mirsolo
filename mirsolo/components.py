@@ -256,6 +256,29 @@ class Invisible(Component):
 
 
 @dataclass
+class SiegeObjective(Component):
+    """攻城目标（城门 / 内城门 / 旗台）。
+
+    刻意**不带 ``AiState``**：目标是被打的死物，不会追人、不会选敌。
+    系统各自按 ``Identity.kind`` 过滤，所以这里只需要"我是哪一波的目标"。
+
+    ``wave`` 是波次序号：非当前波次的目标不可打（``SiegeSystem`` 把它设成
+    ``invulnerable``），这样玩家没法跳过外城直接砍旗台。
+    """
+
+    siege_id: str = ""
+    wave: int = 0
+    objective: str = "gate"  # gate / inner_gate / banner
+    hp: int = 1
+    max_hp: int = 1
+    invulnerable: bool = False
+
+    @property
+    def destroyed(self) -> bool:
+        return self.hp <= 0
+
+
+@dataclass
 class AiState(Component):
     """怪物 AI 的极小状态：目标实体 id + 仇恨值 + 上次攻击刻。
 

@@ -71,6 +71,27 @@ class SkillSlot:
     proficiency: int = 1
 
 
+@dataclass(frozen=True)
+class SiegeBanner:
+    """攻城状态条：顶部居中一横条，装"打哪、还有多少、剩多久"。
+
+    原版攻城靠行会频道喊话同步进度，单机没有队友，所以进度必须常驻可见——
+    否则玩家砍完城门不知道该往哪走。
+
+    ``objective`` 是**当前波次目标**的血条（旗台/城门耐久），
+    ``wave_text`` 是"第 2/3 波 · 内城"，``guards``/``clock`` 是辅助信息。
+    """
+
+    frame: Rect
+    objective: Bar
+    title: str
+    wave_text: str
+    guards_text: str
+    clock_text: str
+    urgent: bool = False
+    """剩余时间不到 1/5 时置真，渲染层把时钟染红。"""
+
+
 @dataclass
 class HudLayout:
     hp: Bar
@@ -80,6 +101,8 @@ class HudLayout:
     panels: dict[str, Rect] = field(default_factory=dict)
     skills: list[SkillSlot] = field(default_factory=list)
     """已学技能栏（最多 5 格，按技能 id 稳定排序，与学习顺序无关）。"""
+    siege: SiegeBanner | None = None
+    """战役状态条；不在攻城时 ``None``（不占屏、不画空框）。"""
 
 
 def clamp_ratio(value: float, maximum: float) -> float:
@@ -95,6 +118,61 @@ EXP_COLOR: RGBA = (0.85, 0.72, 0.25, 0.95)
 
 #: 技能栏最多 5 格（键位 1..5）；顺序由调用方传入（窗口层按学习等级排）
 MAX_SKILL_SLOTS = 5
+
+#: 战役状态条的几何（顶部居中）
+SIEGE_BANNER_WIDTH = 420.0
+SIEGE_BANNER_HEIGHT = 54.0
+SIEGE_BANNER_TOP = 18.0
+SIEGE_BAR_HEIGHT = 12.0
+#: 剩余时间低于总量这个比例就标红（1/5）
+SIEGE_URGENT_RATIO = 0.2
+
+
+def build_siege_banner(status: dict, *, width: int, height: int,
+                       margin: float = 12.0) -> SiegeBanner | None:
+    """把 :func:`mirsolo.siege.campaign.siege_status` 的快照算成顶部状态条。
+
+    ``status`` 为 ``None`` 或已结束时返回 ``None``——打赢/打输之后不该还挂着
+    一条"第 3/3 波 旗台 0/2600"的条子。
+
+    宽度会被钳到屏幕内（窄窗口下不横向溢出），这是唯一的几何约束。
+    """
+    if not status or status.get("finished"):
+        return None
+    width = int(width)
+    height = int(height)
+    banner_w = min(SIEGE_BANNER_WIDTH, max(120.0, width - 2 * margin))
+    x = (width - banner_w) / 2
+    y = height - SIEGE_BANNER_TOP - SIEGE_BANNER_HEIGHT
+    frame = Rect(x, y, banner_w, SIEGE_BANNER_HEIGHT)
+
+    hp = int(status.get("objective_hp", 0))
+    hp_max = int(status.get("objective_max", 0))
+    ratio = clamp_ratio(hp, hp_max)
+    bar_frame = Rect(frame.x + 10, frame.y + 8, banner_w - 20, SIEGE_BAR_HEIGHT)
+    bar = Bar(frame=bar_frame,
+              fill=Rect(bar_frame.x, bar_frame.y, bar_frame.w * ratio, bar_frame.h),
+              ratio=ratio, color=HP_COLOR, caption=f"{hp}/{hp_max}")
+
+    wave = int(status.get("wave", 0)) + 1
+    count = int(status.get("wave_count", 0))
+    wave_text = f"第 {wave}/{count} 波 · {status.get('wave_name', '')}"
+    title = f"{status.get('name', '')} · {status.get('objective_name', '')}"
+    guards_text = f"守军 {int(status.get('guards_alive', 0))}"
+
+    elapsed = int(status.get("elapsed", 0))
+    limit = int(status.get("limit", 0))
+    if limit > 0:
+        left = max(0, limit - elapsed)
+        # 逻辑 10Hz：把刻换算成 mm:ss，玩家读的是时间不是 tick
+        clock_text = f"剩余 {left // 600}:{(left % 600) // 10:02d}"
+        urgent = left <= limit * SIEGE_URGENT_RATIO
+    else:
+        clock_text = ""
+        urgent = False
+
+    return SiegeBanner(frame=frame, objective=bar, title=title, wave_text=wave_text,
+                       guards_text=guards_text, clock_text=clock_text, urgent=urgent)
 
 
 def build_hud(
@@ -116,12 +194,17 @@ def build_hud(
     skill_names: dict[str, str] | None = None,
     cooldowns: dict[str, float] | None = None,
     shield: tuple[int, int] = (0, 0),
+    siege: dict | None = None,
 ) -> HudLayout:
     """按屏幕尺寸算 HUD 布局（左下角三条状态条 + 右上角统计）。
 
     布局规则：
     - 左下：HP（最上）→ MP（中）→ EXP（最下，贴底边）；
     - 右上：地图名 / 等级 / 金币 / 击杀 / 背包占用；
+    - 左上区（状态条右侧）：等级 / 金币 / 护盾；
+    - 右上：地图名 / 击杀 / 背包；
+    - 底部居中：技能栏；
+    - 顶部居中：攻城状态条（仅战役进行中）。
     - 所有矩形都夹在 ``[0, width] × [0, height]`` 内。
     """
     width = int(width)
@@ -187,4 +270,6 @@ def build_hud(
             ))
         panels["skills"] = Rect(left - 4, margin + 18.0, total + 8, slot_h + 8)
 
-    return HudLayout(hp=hp, mp=mp, exp=exp, texts=texts, panels=panels, skills=slots)
+    return HudLayout(hp=hp, mp=mp, exp=exp, texts=texts, panels=panels, skills=slots,
+                     siege=build_siege_banner(siege, width=width, height=height,
+                                              margin=margin))

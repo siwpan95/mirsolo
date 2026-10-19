@@ -39,7 +39,48 @@ INJECTIONS = [
      "        price = buy_price(data, item_id)",
      "        price = sell_price(data, item_id)",
      "tests.test_panels"),
+    ("攻城推进不让上一波退场（旧城门+残兵堆在旗台下）",
+     ROOT / "mirsolo/siege/campaign.py",
+     "    # 先让上一波退场（城门 + 守军），再铺下一波\n    _retire_wave(world, state)",
+     "    # 先让上一波退场（城门 + 守军），再铺下一波\n    pass",
+     "tests.test_siege"),
+    ("攻城推进不锁非当前波次目标（没打下城门就能砍旗台）",
+     ROOT / "mirsolo/siege/campaign.py",
+     "            objective.invulnerable = not current",
+     "            objective.invulnerable = False",
+     "tests.test_siege"),
+    ("增援封顶失效（max 不生效）",
+     ROOT / "mirsolo/siege/campaign.py",
+     "            if tick - state.last_reinforce_tick >= every and state.reinforced < int(reinforce[\"max\"]):",
+     "            if tick - state.last_reinforce_tick >= every:",
+     "tests.test_siege"),
+    ("战役目标改成 kind=monster（死亡奖励重复发/尸体不清）",
+     ROOT / "mirsolo/siege/campaign.py",
+     "    entity.add(Identity(name=wave[\"name\"], kind=\"guard\", faction=1,",
+     "    entity.add(Identity(name=wave[\"name\"], kind=\"monster\", faction=1,",
+     "tests.test_siege"),
+    ("战役状态条忽略 elapsed（时钟永远满格、永不标红）",
+     ROOT / "mirsolo/presentation/hud.py",
+     "    elapsed = int(status.get(\"elapsed\", 0))",
+     "    elapsed = 0",
+     "tests.test_presentation"),
 ]
+
+
+def _match(original: str, needle: str) -> tuple[str, str] | None:
+    """在文件正文里找注入点，**换行符归一后再比**。
+
+    坑：本仓库的文件是 CRLF（Windows），而 ``INJECTIONS`` 里的多行 needle
+    写的是 ``\\n``。之前只在 LF 文件上碰巧命中，换成 CRLF 文件就静默 SKIP——
+    注入验证"什么都没注入还报 SKIP"，等于这条门禁自己失效。
+    这里做的是：把 needle 的 ``\\n`` 先试 LF，再试 CRLF。
+    """
+    if needle in original:
+        return needle, needle.count("\n")
+    crlf = needle.replace("\n", "\r\n")
+    if crlf in original:
+        return crlf, needle.count("\n")
+    return None
 
 
 def run(test_module: str) -> tuple[bool, str]:
@@ -54,11 +95,18 @@ def main() -> int:
     for label, path, old, new, module in INJECTIONS:
         original = path.read_bytes()
         text = original.decode("utf-8")
-        if old not in text:
+        matched = _match(text, old)
+        if matched is None:
             print(f"[SKIP] {label}: 找不到注入点（代码已变，请更新本脚本）")
             failures += 1
             continue
-        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        needle, _ = matched
+        new_text = new.replace("\n", "\r\n") if "\r\n" in needle else new
+        if needle not in text:
+            print(f"[SKIP] {label}: 找不到注入点（代码已变，请更新本脚本）")
+            failures += 1
+            continue
+        path.write_text(text.replace(needle, new_text, 1), encoding="utf-8", newline="")
         try:
             green, tail = run(module)
         finally:

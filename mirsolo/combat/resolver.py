@@ -23,6 +23,7 @@ from mirsolo.components import (
     Invisible,
     Poison,
     Shield,
+    SiegeObjective,
     Vitals,
 )
 from mirsolo.determinism import Rng
@@ -73,6 +74,11 @@ class CombatResolver:
         """
         vitals = defender.get(Vitals)
         if vitals is None or amount <= 0:
+            return 0
+        # 城门/旗台在非当前波次不吃伤害：没有这条，玩家可以绕过外城直接砍旗台，
+        # 三波布防形同虚设
+        objective = defender.get(SiegeObjective)
+        if objective is not None and objective.invulnerable:
             return 0
         shield = defender.get(Shield)
         eaten = 0

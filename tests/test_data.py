@@ -31,18 +31,22 @@ def test_shipped_data_is_clean():
 
 @case
 def test_seven_tables_are_present():
-    for name in ("exp", "classes", "skills", "monsters", "items", "drops", "maps"):
+    """结构表必须齐全（P2 加了第九张 ``sieges``，这里是按名字点验不是按数量）。"""
+    for name in ("exp", "classes", "skills", "monsters", "items", "drops", "maps", "sieges"):
         table = getattr(DATA, name)
         assert isinstance(table, dict) and table, f"{name}.json 为空"
 
 
 @case
-def test_p1_map_bands_cover_1_to_50():
-    """八张图的等级带必须首尾相接覆盖 1-50（练级不能断档）。"""
+def test_p1_map_bands_cover_1_to_52():
+    """地图等级带必须首尾相接覆盖 1-52（练级不能断档）。
+
+    P2 加了 ``chiyue_valley``(50-51) / ``niumo_cave``(51-52)，上限从 50 抬到 52。
+    """
     bands = sorted((s["level_range"][0], s["level_range"][1], mid)
                    for mid, s in DATA.maps["maps"].items())
     assert bands[0][0] == 1, bands[0]
-    assert bands[-1][1] == 50, bands[-1]
+    assert bands[-1][1] == 52, bands[-1]
     for prev, cur in zip(bands, bands[1:]):
         assert cur[0] <= prev[1] + 1, f"{prev[2]}→{cur[2]} 等级断档"
 
@@ -88,8 +92,7 @@ def test_exp_covers_1_to_50():
 def test_missing_table_raises():
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp)
-        for name in ("classes", "skills", "monsters", "items", "drops", "maps", "exp"):
-            shutil.copy(DATA.data_dir / f"{name}.json", base / f"{name}.json")
+        _copy_tables(base)
         (base / "drops.json").unlink()
         try:
             GameData.load(base)
@@ -99,11 +102,21 @@ def test_missing_table_raises():
         raise AssertionError("缺表未抛 FileNotFoundError")
 
 
+def _copy_tables(target: Path) -> None:
+    """把数据目录里**所有**表拷进 ``target``。
+
+    以前这里是写死的七张表名单——加了 ``sieges.json`` 之后，破坏测试的临时
+    目录就缺表，于是"构造一个坏表看校验报不报"的测试全部退化成
+    "FileNotFoundError"。改成扫目录，加表不必再改测试。
+    """
+    for path in DATA.data_dir.glob("*.json"):
+        shutil.copy(path, target / path.name)
+
+
 def _mutated(name: str, mutate) -> Path:
     """复制一份数据目录并就地改坏一张表，返回临时目录（调用方负责清理）。"""
     tmp = Path(tempfile.mkdtemp())
-    for table in ("exp", "classes", "skills", "monsters", "items", "drops", "maps"):
-        shutil.copy(DATA.data_dir / f"{table}.json", tmp / f"{table}.json")
+    _copy_tables(tmp)
     payload = json.loads((tmp / f"{name}.json").read_text(encoding="utf-8"))
     mutate(payload)
     (tmp / f"{name}.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")

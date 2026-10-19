@@ -168,6 +168,7 @@ class MobAttackSystem(System):
         intents = list(world.get_data(KEY_INTENTS, []))
         for mob in world.each(AiState, Position, Identity, Vitals):
             ident = mob.get(Identity)
+            # 目标（guard）不还手：它没有 AiState，压根进不了这条分支
             if ident.kind not in ("monster", "summon"):
                 continue
             state = mob.get(AiState)
@@ -255,7 +256,9 @@ class AiTargetSystem(System):
             state = mob.get(AiState)
             ident = mob.get(Identity)
             pos = mob.get(Position)
-            if ident.kind not in ("monster", "summon"):
+            # guard = 攻城目标（城门/旗台）：它不是怪、没有 AiState 的追人逻辑，
+            # 但**必须能被玩家选为目标**，否则城门永远砍不动
+            if ident.kind not in ("monster", "summon", "guard"):
                 continue
             home_x, home_y = state.home
             if (pos.x - home_x) ** 2 + (pos.y - home_y) ** 2 > state.leash ** 2:
@@ -410,6 +413,8 @@ class DeathRewardSystem(System):
                 world.remove_entity(victim.id)
                 continue
 
+            # 守军走的是普通 monster（有 monsters.json 条目），所以这条判定不变；
+            # 攻城目标（kind="guard"）的奖励由 SiegeSystem 统一发，这里不能重复给。
             if killer is None or ident is None or ident.kind != "monster" or spec is None:
                 continue
 

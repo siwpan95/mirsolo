@@ -37,13 +37,24 @@ from mirsolo.components import (
 )
 from mirsolo.economy.shop import TradeError, buy, deposit, sell, withdraw
 from mirsolo.items.equipment import EquipError, equip, unequip
-from mirsolo.presentation.hud import MAX_SKILL_SLOTS, HudLayout, build_hud
+from mirsolo.presentation.hud import (
+    MAX_SKILL_SLOTS,
+    SIEGE_BANNER_HEIGHT,
+    HudLayout,
+    build_hud,
+)
 from mirsolo.presentation.iso_camera import IsoCamera
 from mirsolo.presentation.panels import Panel, Row, build_panel
 from mirsolo.presentation.renderer import GLRenderer
 from mirsolo.presentation.scene import MAP_PALETTE, build_instances
 from mirsolo.progression.exp import apply_growth
 from mirsolo.skills import EVT_SKILL_CAST, SELF_KINDS, SkillError, learn
+from mirsolo.siege.campaign import (
+    EVT_SIEGE_LOST,
+    EVT_SIEGE_WON,
+    siege_status,
+    start_siege,
+)
 from mirsolo.world.travel import EVT_MAP_CHANGED
 
 FONT = "Microsoft YaHei"
@@ -106,6 +117,7 @@ class MirsoloWindow(pyglet.window.Window):
         self._last_real_dt = 1.0 / 60.0
         self._toast = ""
         self._toast_until = 0.0
+        self._toast_big = False
         self.panel: str | None = None
         self.panel_scroll = 0
         self._panel: Panel | None = None
@@ -115,6 +127,8 @@ class MirsoloWindow(pyglet.window.Window):
             bus.subscribe(EVT_SKILL_CAST, self._on_skill_cast)
             bus.subscribe("skill:rejected", self._on_skill_rejected)
             bus.subscribe(EVT_MAP_CHANGED, self._on_map_changed)
+            bus.subscribe(EVT_SIEGE_WON, self._on_siege_won)
+            bus.subscribe(EVT_SIEGE_LOST, self._on_siege_lost)
 
         player = session.world.get_entity("player")
         if player is not None:
@@ -127,6 +141,7 @@ class MirsoloWindow(pyglet.window.Window):
         """一行浮字提示（1.2 秒后自动消失）。"""
         self._toast = text
         self._toast_until = time.time() + TOAST_SECONDS
+        self._toast_big = False
 
     def _on_map_changed(self, payload: dict) -> None:
         maps = self.session.data.maps["maps"]
@@ -137,6 +152,24 @@ class MirsoloWindow(pyglet.window.Window):
         if player is not None:  # 传送是瞬移，相机不要插值过去（否则会飞越大半张图）
             pos = player.get(Position)
             self.camera.center = (pos.x, pos.y)
+
+    # ── 攻城战役反馈 ────────────────────────────────
+
+    def _on_siege_won(self, payload: dict) -> None:
+        rewards = self.session.data.sieges["sieges"].get(payload.get("siege"), {})
+        title = (rewards.get("rewards") or {}).get("title")
+        gold = (rewards.get("rewards") or {}).get("gold", 0)
+        word = f"攻陷 {payload.get('name', '沙巴克')}"
+        self._on_notice(f"{word}！金币 +{gold}" + (f"　获得称号「{title}」" if title else ""))
+
+    def _on_siege_lost(self, payload: dict) -> None:
+        self._on_notice(f"{payload.get('name', '攻城')} 失败——守军重新布防")
+
+    def _on_notice(self, text: str) -> None:
+        """重要提示（胜负这类）：比普通浮字停得久一些，免得一眨眼就没了。"""
+        self._toast = text
+        self._toast_until = time.time() + TOAST_SECONDS * 3
+        self._toast_big = True
 
     # ── 施放反馈（浮字） ────────────────────────────
 
@@ -419,6 +452,7 @@ class MirsoloWindow(pyglet.window.Window):
                          self.session.data.skills["skills"].items()},
             cooldowns=dict(cooldowns.remaining) if cooldowns is not None else None,
             shield=(shield.current, shield.max) if shield is not None else (0, 0),
+            siege=siege_status(self.session.world),
         )
 
         for bar in (layout.hp, layout.mp, layout.exp):
@@ -458,16 +492,56 @@ class MirsoloWindow(pyglet.window.Window):
                 font_size=10, font_name=FONT,
                 color=(225, 230, 238, 255) if slot.ready else (150, 140, 140, 255)))
 
+        # 攻城状态条：只有战役进行中才有（打完了立刻消失，不留空框）
+        banner = layout.siege
+        if banner is not None:
+            frame = banner.frame
+            self._hud_shapes.append(shapes.Rectangle(
+                frame.x, frame.y, frame.w, frame.h, color=(14, 16, 20, 232)))
+            self._hud_shapes.append(shapes.Box(
+                frame.x, frame.y, frame.w, frame.h, thickness=2.0,
+                color=(122, 100, 58, 255) if not banner.urgent else (190, 80, 60, 255)))
+            # 目标耐久：底槽 + 填充
+            bar = banner.objective
+            self._hud_shapes.append(shapes.Rectangle(
+                bar.frame.x, bar.frame.y, bar.frame.w, bar.frame.h,
+                color=(20, 22, 26, 220)))
+            if not bar.empty:
+                self._hud_shapes.append(shapes.Rectangle(
+                    bar.fill.x, bar.fill.y, bar.fill.w, bar.fill.h,
+                    color=tuple(int(c * 255) for c in bar.color)))
+            # 两行文本：第二行（波次/守军/时钟）紧贴耐久条下方，标题行在最下。
+            # 行距 16px 是实测不叠字的最小值——改成更小就会叠（截图验收发现过）。
+            row_y = frame.y + SIEGE_BANNER_HEIGHT - 32
+            title_y = frame.y + SIEGE_BANNER_HEIGHT - 16
+            self._hud_labels.append(Label(
+                f"{banner.title}　{bar.caption}", x=frame.x + 10,
+                y=title_y,
+                font_size=11, font_name=FONT, color=(238, 230, 210, 255)))
+            self._hud_labels.append(Label(
+                banner.wave_text, x=frame.x + 10, y=row_y,
+                font_size=11, font_name=FONT, color=(200, 206, 216, 255)))
+            self._hud_labels.append(Label(
+                banner.guards_text, x=frame.x + frame.w / 2, y=row_y,
+                font_size=11, font_name=FONT, anchor_x="center",
+                color=(200, 206, 216, 255)))
+            self._hud_labels.append(Label(
+                banner.clock_text, x=frame.right - 10, y=row_y,
+                font_size=11, font_name=FONT, anchor_x="right",
+                color=(255, 110, 90, 255) if banner.urgent else (200, 206, 216, 255)))
+
         self._hud_labels.append(Label(
             "WASD/方向键移动　空格攻击　1-5 技能　C 角色　B 商店　V 仓库　滚轮缩放　ESC 退出",
             x=self.width / 2, y=8, font_size=11, font_name=FONT,
             anchor_x="center", color=(170, 176, 186, 255)))
 
-        # 施放/拒绝反馈（1.2 秒后自动消失）
+        # 施放/拒绝反馈（1.2 秒后自动消失；胜负这类重要提示停 3 倍时长且字号更大）
         if self._toast and time.time() < self._toast_until:
+            big = self._toast_big
             self._hud_labels.append(Label(
-                self._toast, x=self.width / 2, y=self.height - 64, font_size=15,
-                font_name=FONT, anchor_x="center", color=(255, 228, 150, 255)))
+                self._toast, x=self.width / 2, y=self.height - 64,
+                font_size=19 if big else 15, font_name=FONT, anchor_x="center",
+                color=(255, 240, 170, 255) if big else (255, 228, 150, 255)))
 
     # ── 面板绘制 ────────────────────────────────────
 
@@ -630,16 +704,23 @@ def launch(*, seed: int = 20261019, map_id: str = "biqi_field",
            player_class: str = "warrior", width: int = 1280, height: int = 720,
            shot_path: str | None = None, max_frames: int | None = None,
            level: int = 1, learn: bool = False, gear: bool = False,
-           panel: str | None = None) -> None:
+           panel: str | None = None, siege: str | None = None) -> None:
     """装配会话 + 开窗（CLI 与测试共用入口）。
 
     ``panel`` 只用于验收截图：开窗时就打开某个面板（``character``/``shop``/
     ``warehouse``），截图里能直接看到面板长什么样。
+
+    ``siege`` 是验收开关：传战役 id（如 ``sabak``）时装配完立刻
+    :func:`mirsolo.siege.campaign.start_siege`——它内部会换图并铺现场，
+    因此 ``map_id`` 会被战役的 ``map`` 覆盖（不覆盖就会"人还在比奇城却挂着
+    沙巴克状态条"）。
     """
     session = build_session(seed=seed, map_id=map_id)
     populate(session, player_class=player_class)
     prepare_character(session, class_id=player_class, level=level,
                       learn_all=learn, gear=gear)
+    if siege is not None:
+        start_siege(session, siege)
     window = MirsoloWindow(session=session, width=width, height=height)
     if panel is not None:
         window.panel = panel
