@@ -56,6 +56,8 @@ class TextAnchor:
     y: float
     size: int = 12
     color: RGBA = (0.92, 0.92, 0.92, 1.0)
+    anchor_x: str = ""
+    """``"left"``/``"right"``；留空表示由渲染层按位置自动判断（HUD 右上角统计用）。"""
 
 
 @dataclass(frozen=True)

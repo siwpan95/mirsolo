@@ -36,6 +36,27 @@ AI_TIERS: dict[str, dict[str, float]] = {
 DEFAULT_TIER = "aggressive"
 BASE_LEASH = 12.0
 
+#: 实体序号存在 world data 里的键（只增不减）
+KEY_ENTITY_SERIAL = "entity_serial"
+
+
+def next_entity_id(world: World, prefix: str) -> str:
+    """生成一个**永不重复**的 eid。
+
+    为什么不能用 ``entity_count() + 1``：``World.create_entity`` 遇到已存在的
+    eid 会**静默覆盖**（实测：既不抛异常，实体数也不变），而实体数会**倒退**——
+    召唤物尸体会被清掉、换图会整体重置。计数一倒退，新怪就直接顶替掉一只
+    活着的旧怪，表现成"怪凭空少了一只"，还查不出痕迹。
+
+    所以序号只增不减，落盘在 ``world`` data 里，最后再兜一次存在性检查。
+    """
+    while True:
+        serial = int(world.get_data(KEY_ENTITY_SERIAL, 0)) + 1
+        world.set_data(KEY_ENTITY_SERIAL, serial)
+        candidate = f"{prefix}#{serial}"
+        if not world.has_entity(candidate):
+            return candidate
+
 
 def spawn_player(
     world: World,
@@ -47,9 +68,16 @@ def spawn_player(
     y: float = 0.0,
     eid: str = "player",
 ):
-    """创建玩家实体（1 级，裸装，按职业成长表初始化）。"""
+    """创建玩家实体（1 级，裸装，按职业成长表初始化）。
+
+    eid 固定为 ``"player"``，所以**同 world 只能有一个**：重复创建时
+    ``create_entity`` 会静默返回旧实体、把组件覆盖一遍（血量/背包/等级全丢）。
+    换图请用 :func:`mirsolo.world.travel.travel` 搬位置，而不是重建玩家。
+    """
     if class_id not in data.classes["classes"]:
         raise KeyError(f"未知职业 {class_id!r}")
+    if world.has_entity(eid):
+        raise ValueError(f"eid {eid!r} 已存在，不能重复创建玩家（换图请用 travel）")
     class_spec = data.classes["classes"][class_id]
 
     entity = world.create_entity(eid)
@@ -80,7 +108,9 @@ def spawn_monster(
 ):
     """创建怪物实体。
 
-    eid 默认 ``"<species>#<序号>"`` —— 必须唯一（``World.entities`` 以 eid 为键），
+    eid 默认 ``"<species>#<序号>"`` —— 必须唯一（``World.entities`` 以 eid 为键）。
+    序号走 :func:`next_entity_id`（只增不减 + 存在性兜底），**不要**改成
+    ``entity_count()``：那个值会因为清尸体/换图而倒退，撞上已有 eid 会静默覆盖。
     数据表查表一律走 ``Identity.species``。
     """
     spec = data.monsters["monsters"].get(monster_id)
@@ -91,7 +121,7 @@ def spawn_monster(
     if tier not in AI_TIERS:
         tier = DEFAULT_TIER  # 数据写错档位就退回常规，不让造怪直接崩
 
-    unique_eid = eid or f"{monster_id}#{world.entity_count() + 1}"
+    unique_eid = eid or next_entity_id(world, monster_id)
     entity = world.create_entity(unique_eid)
     entity.add(Identity(name=spec["name"], kind="monster", faction=1, species=monster_id))
     entity.add(Position(x=x, y=y))

@@ -31,6 +31,7 @@ def test_session_has_core_services():
             "TickSystem", "RegenSystem", "CooldownSystem", "MovementSystem",
             "SkillSystem", "StatusSystem", "MobChaseSystem", "AiTargetSystem",
             "MobAttackSystem", "AttackSystem", "DeathRewardSystem", "RespawnSystem",
+            "PortalSystem",
         }
         names = {type(s).__name__ for s in session.world.systems}
         assert names == expected, f"系统装配与预期不符：多 {names - expected} 少 {expected - names}"
@@ -42,6 +43,8 @@ def test_session_has_core_services():
         assert order.index("AiTargetSystem") < order.index("MobChaseSystem") < order.index("MobAttackSystem")
         assert order.index("MobAttackSystem") < order.index("AttackSystem")
         assert order.index("AttackSystem") < order.index("DeathRewardSystem")
+        # 换图必须最后：先让这一 tick 的移动结算完，再判断脚下是不是传送点
+        assert order[-1] == "PortalSystem", order[-1]
     finally:
         session.shutdown()
 

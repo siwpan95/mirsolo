@@ -55,12 +55,19 @@ mirsolo/
       exp.py            经验查表 + 连升结转 + 属性成长（含 mc/sc）
     items/
       drops.py          组权重掉落（seed + kill_index 决定，防 save-scum）
+      equipment.py      穿脱装备 + 属性重算（裸身基准 + 装备加成，每次全量重算）
+    economy/
+      shop.py           商店买卖 + 仓库存取（回收价 1/3，买进卖出必亏）
+    world/
+      spawn.py          按地图刷新表铺怪（开局与换图同一条路径）
+      travel.py         传送点判定与换图（PortalSystem，踩上去就过）
     presentation/
       iso_camera.py     真等距相机（35.264° 俯角 / 正交投影 / 跟随缩放）
       scene.py          实例收集与深度排序（纯数据，无 GL）
       hud.py            HP/MP/EXP 条与状态文本（纯数据，无 GL）
+      panels.py         角色/商店/仓库面板布局与命中测试（纯数据，无 GL）
       renderer.py       pyglet 2.1 ShaderProgram 渲染（地面网格 1 draw / 实例 1 draw）
-      app.py            窗口、输入（WASD/空格/滚轮）与固定步长循环
+      app.py            窗口、输入（WASD/空格/滚轮/鼠标点面板）与固定步长循环
     data/
       loader.py         七张表加载 + 结构校验 + 引用校验
     cli/
@@ -70,15 +77,16 @@ mirsolo/
     exp.json            1-50 级经验曲线
     classes.json        三职业基础属性与成长（含 mc/sc）
     skills.json         技能表（三职业 16 技 + 技能书；P1-S2 起全部 kind 有行为）
-    monsters.json       怪物表（P0：6 种）
-    items.json          装备表（P0：8 件）
+    monsters.json       怪物表（17 种，AI 三档：passive/aggressive/elite）
+    items.json          装备 8 件 + 技能书 16 本（book 的 teaches 双向校验）
     drops.json          掉落表（组权重 + gold 区间）
-    maps.json           地图与刷新/传送表（P0：2 张）
+    maps.json           地图与刷新/传送表（8 张，等级带 1-50 连续）
   docs/
     数据口径.md          逐表来源、近似标记与已知差异
     借鉴记账.md          借鉴对象 / 许可证 / 范围 / 禁区
-  scripts/verify.py     6 条机械门禁（含 --selfcheck 注入破坏自检）
-  tests/run_tests.py    测试聚合 runner（6 模块）
+  scripts/verify.py     7 条机械门禁（含 --selfcheck 注入破坏自检）
+  scripts/inject_check.py  注入验证：把生产代码改坏，确认回归真的会红
+  tests/run_tests.py    测试聚合 runner（13 模块）
 ```
 
 ## 设计要点
@@ -104,7 +112,7 @@ mirsolo/
 ## 测试与验收
 
 ```bat
-python -m tests.run_tests              :: 6 个模块，64 项无窗口单测
+python -m tests.run_tests              :: 13 个模块，155 项无窗口单测
 python -m mirsolo.cli.smoke --ticks 3000   :: headless 冒烟（含确定性复跑）
 python scripts\verify.py               :: 6 条机械门禁（<1 秒）
 python scripts\verify.py --list        :: 只看门禁清单

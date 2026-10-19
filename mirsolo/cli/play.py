@@ -7,11 +7,15 @@
     python -m mirsolo.cli.play --shot shots/field.png   # 渲染一帧存图后退出（验收用）
     python -m mirsolo.cli.play --frames 120 --shot x.png  # 先跑 120 帧再存图
     python -m mirsolo.cli.play --class mage --level 35 --learn   # 验收：满技能法师
+    python -m mirsolo.cli.play --level 20 --gear --panel character --shot x.png
 
-按键：WASD / 方向键移动，空格攻击最近的相邻怪，1-5 施放技能，滚轮缩放，ESC 退出。
+按键：WASD / 方向键移动，空格攻击最近的相邻怪，1-5 施放技能，滚轮缩放，
+C 角色面板（点击穿脱）、B 商店（点击买卖）、V 仓库（点击存取），
+ESC 关面板 / 再按退出。走上传送点自动换图。
 
-``--level`` / ``--learn`` 是**验收开关**（不是作弊菜单）：升级走
-``apply_growth``、学技能走 ``learn`` + 真发技能书，与游戏内路径完全同一条。
+``--level`` / ``--learn`` / ``--gear`` / ``--panel`` 都是**验收开关**（不是作弊
+菜单）：升级走 ``apply_growth``、学技能走 ``learn`` + 真发技能书、穿装备走
+``equip``（含职业/等级/负重四道门），与游戏内路径完全同一条。
 
 为什么先设 ``dpi_scaling='real'``：3dworld 实测过 pyglet 2.1 在
 Windows 150% 缩放下 ``platform`` 模式会让 viewport 被乘两遍导致画面裁切
@@ -42,6 +46,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="验收用：直接把角色提到该等级（走 apply_growth）")
     parser.add_argument("--learn", action="store_true",
                         help="验收用：发放本职业技能书并学会当前等级可学的全部技能")
+    parser.add_argument("--gear", action="store_true",
+                        help="验收用：发放并把该等级能穿的最好一套装备穿上（走 equip）")
+    parser.add_argument("--panel", choices=("character", "shop", "warehouse"),
+                        default=None, help="验收用：开窗即打开该面板（截图看版式）")
     args = parser.parse_args(argv)
 
     from mirsolo.presentation.app import launch
@@ -50,7 +58,8 @@ def main(argv: list[str] | None = None) -> int:
         launch(seed=args.seed, map_id=args.map, player_class=args.player_class,
                width=args.width, height=args.height,
                shot_path=args.shot, max_frames=args.frames,
-               level=args.level, learn=args.learn)
+               level=args.level, learn=args.learn, gear=args.gear,
+               panel=args.panel)
     except Exception as exc:  # noqa: BLE001 - 开窗失败要给可执行的提示，而不是堆栈
         print(f"[FAIL] 无法启动窗口: {type(exc).__name__}: {exc}", file=sys.stderr)
         print("提示：无显示器/无 GL 时请用 `python -m mirsolo.cli.smoke` 做逻辑验收。",

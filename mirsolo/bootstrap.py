@@ -40,6 +40,7 @@ from mirsolo.actor.systems import (
 from mirsolo.combat.resolver import CombatContext, CombatResolver
 from mirsolo.data.loader import GameData
 from mirsolo.skills.engine import KEY_SKILL_INTENTS, SkillSystem
+from mirsolo.world.travel import PortalSystem
 
 DEFAULT_SEED = 20261019
 DEFAULT_TICK_DT = 1.0 / 10.0  # 战斗逻辑 10Hz：传奇动作节奏本来就不快，整数结算更稳
@@ -99,6 +100,12 @@ class GameSession:
         from mirsolo.skills.engine import queue_skill
 
         queue_skill(self.world, caster, skill_id, target)
+
+    def travel_to(self, target_map_id: str) -> dict:
+        """直接换图（走传送点由 ``PortalSystem`` 自动触发，这里是显式入口）。"""
+        from mirsolo.world.travel import travel
+
+        return travel(self, target_map_id)
 
     # ── 观测面（给 CLI / 测试 / 以后的 HUD） ──────────
 
@@ -162,8 +169,9 @@ def build_session(
     world.add_system(AttackSystem(ctx))
     world.add_system(death_system)
     world.add_system(RespawnSystem(data=game_data, seed=seed, tick_dt=tick_dt))
+    world.add_system(PortalSystem())  # 最后跑：先结算完这一 tick 的移动/攻击
 
-    return GameSession(
+    session = GameSession(
         engine=engine,
         world=world,
         bus=bus,
@@ -174,6 +182,10 @@ def build_session(
         resolver=CombatResolver(ctx),
         loop=engine.loop,
     )
+    # 换图系统要拿会话（换图会改 session.map_id），但系统构造时会话还不存在，
+    # 所以装配完再注入。headless 与窗口都走这条，不会分叉。
+    world.set_data("session", session)
+    return session
 
 
 def populate(session: GameSession, *, player_class: str = "warrior",
@@ -181,23 +193,16 @@ def populate(session: GameSession, *, player_class: str = "warrior",
     """按地图刷新表铺一遍怪，并放一个玩家。
 
     返回 ``{"player": Entity, "monsters": [Entity, ...]}``。
+    刷怪走 :func:`mirsolo.world.spawn.spawn_map_monsters`（与换图同一条路径），
+    否则"开局进去"与"换图进去"的怪会悄悄长成两个样。
     """
-    from mirsolo.actor.factory import spawn_monster, spawn_player
-    from mirsolo.determinism import Rng
+    from mirsolo.actor.factory import spawn_player
+    from mirsolo.world.spawn import spawn_map_monsters
 
     map_spec = session.data.maps["maps"][session.map_id]
     player = spawn_player(session.world, session.data, class_id=player_class,
                           name="无名", x=float(map_spec["size"][0] // 2),
                           y=float(map_spec["size"][1] // 2))
-    monsters = []
-    if with_spawns:
-        serial = 0
-        for spawn in map_spec.get("spawns", []):
-            for _ in range(int(spawn.get("count", 0))):
-                serial += 1
-                rng = Rng(session.seed, f"populate:{session.map_id}:{spawn['monster']}:{serial}")
-                x = rng.rand_int(0, int(map_spec["size"][0]) - 1)
-                y = rng.rand_int(0, int(map_spec["size"][1]) - 1)
-                monsters.append(spawn_monster(session.world, session.data, spawn["monster"],
-                                              x=float(x), y=float(y)))
+    monsters = (spawn_map_monsters(session.world, session.data, session.map_id,
+                                   session.seed) if with_spawns else [])
     return {"player": player, "monsters": monsters}
