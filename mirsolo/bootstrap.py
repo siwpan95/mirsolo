@@ -38,6 +38,7 @@ from mirsolo.actor.systems import (
 )
 from mirsolo.combat.resolver import CombatContext, CombatResolver
 from mirsolo.data.loader import GameData
+from mirsolo.skills.engine import KEY_SKILL_INTENTS, SkillSystem
 
 DEFAULT_SEED = 20261019
 DEFAULT_TICK_DT = 1.0 / 10.0  # 战斗逻辑 10Hz：传奇动作节奏本来就不快，整数结算更稳
@@ -92,6 +93,12 @@ class GameSession:
         })
         self.world.set_data(KEY_INTENTS, intents)
 
+    def cast_skill(self, caster, skill_id: str, target=None) -> None:
+        """投递一个技能意图（校验/扣费/结算由 ``SkillSystem`` 在下一步统一做）。"""
+        from mirsolo.skills.engine import queue_skill
+
+        queue_skill(self.world, caster, skill_id, target)
+
     # ── 观测面（给 CLI / 测试 / 以后的 HUD） ──────────
 
     def rewards(self) -> list[dict]:
@@ -132,6 +139,7 @@ def build_session(
     world.set_data("bus", bus)
     world.set_data(KEY_TICK, 0)
     world.set_data(KEY_INTENTS, [])
+    world.set_data(KEY_SKILL_INTENTS, [])
     world.set_data(KEY_KILL_COUNTS, {})
     world.set_data(KEY_REWARDS, [])
     world.set_data(KEY_MOVE_INTENT, (0, 0))
@@ -145,6 +153,7 @@ def build_session(
     world.add_system(RegenSystem())
     world.add_system(CooldownSystem())
     world.add_system(MovementSystem())
+    world.add_system(SkillSystem(game_data, ctx))
     world.add_system(MobChaseSystem())
     world.add_system(AiTargetSystem())
     world.add_system(MobAttackSystem(game_data))

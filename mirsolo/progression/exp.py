@@ -91,12 +91,20 @@ def grow_attributes(class_spec: dict, level: int) -> dict:
         step(int(class_spec["ac_base"][0]), "ac_min_per_levels"),
         step(int(class_spec["ac_base"][1]), "ac_max_per_levels"),
     )
+
+    def pair(base_key: str, min_key: str, max_key: str) -> tuple[int, int]:
+        """区间成长：无 base 字段视为恒 0（战士的 mc/sc）。"""
+        base = class_spec.get(base_key)
+        if not base:
+            return (0, 0)
+        return (step(int(base[0]), min_key), step(int(base[1]), max_key))
+
     return {
         "hp_max": int(class_spec["hp_base"]) + int(class_spec["hp_per_level"]) * n,
         "mp_max": int(class_spec["mp_base"]) + int(class_spec["mp_per_level"]) * n,
         "dc": dc,
-        "mc": (0, 0),
-        "sc": (0, 0),
+        "mc": pair("mc_base", "mc_min_per_levels", "mc_max_per_levels"),
+        "sc": pair("sc_base", "sc_min_per_levels", "sc_max_per_levels"),
         "ac": ac,
         "mac": tuple(class_spec.get("mac_base", (0, 0))),
         "accuracy": step(int(class_spec["accuracy_base"]), "accuracy_per_levels"),

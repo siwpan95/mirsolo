@@ -31,6 +31,7 @@ MODULES = [
     "test_camera",
     "test_presentation",
     "test_movement",
+    "test_skills",
 ]
 
 PASS_MARKER = "ALL_MIRSOLO_TESTS_PASSED"

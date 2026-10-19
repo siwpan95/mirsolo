@@ -37,6 +37,12 @@ SLOTS = ("weapon", "armor", "helmet", "necklace", "bracelet", "ring", "candle")
 #: 允许的职业 id
 CLASSES = ("warrior", "mage", "taoist")
 
+#: 技能 kind 全集（数据面事实的唯一定义处；mirsolo/skills/engine.py 从这里导入）
+SKILL_KINDS = frozenset({
+    "physical", "physical_aoe", "magic", "magic_aoe", "taoist",
+    "heal", "group_heal", "poison", "buff_shield", "buff_invis", "summon",
+})
+
 
 def _read_json(path: Path) -> dict:
     if not path.exists():
@@ -134,11 +140,17 @@ class GameData:
                     errs.append(f"classes.json[{cid}]: 缺字段 {key}")
 
         for sid, spec in self.skills["skills"].items():
-            for key in ("name", "class", "level_req", "power_permille", "cooldown"):
+            for key in ("name", "class", "level_req", "power_permille", "cooldown",
+                        "cost_mp", "range", "kind"):
                 if key not in spec:
                     errs.append(f"skills.json[{sid}]: 缺字段 {key}")
             if spec.get("class") not in CLASSES:
                 errs.append(f"skills.json[{sid}]: 职业 {spec.get('class')!r} 不存在")
+            if spec.get("kind") not in SKILL_KINDS:
+                errs.append(f"skills.json[{sid}]: 未知 kind {spec.get('kind')!r}")
+            if spec.get("kind", "").endswith("_aoe") or spec.get("kind") == "group_heal":
+                if "aoe_radius" not in spec:
+                    errs.append(f"skills.json[{sid}]: 范围类技能缺 aoe_radius")
 
         for mid, spec in self.monsters["monsters"].items():
             for key in ("name", "hp", "exp", "dc", "ac", "accuracy", "agility", "ai"):

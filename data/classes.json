@@ -1,7 +1,7 @@
 {
   "meta": {
     "version": "1.76-ref",
-    "note": "P0 只开战士；成长用整数公式。per_levels 语义=每升 N 级 +1（如 dc_min_per_levels=4 即每 4 级攻下限 +1，step 固定为 1）。逐级数值为近似，P1 用实测战斗日志校准。",
+    "note": "成长用整数公式。per_levels 语义=每升 N 级 +1（如 dc_min_per_levels=4 即每 4 级攻下限 +1，step 固定为 1）。三职业 mc/sc 全量显式给出（战士恒 0）。逐级数值为近似，P1 用实测战斗日志校准。",
     "source": "docs/数据口径.md#classes"
   },
   "classes": {
@@ -12,20 +12,37 @@
       "hp_per_level": 4,
       "mp_base": 0,
       "mp_per_level": 0,
-      "dc_base": [1, 2],
+      "dc_base": [
+        1,
+        2
+      ],
       "dc_min_per_levels": 4,
       "dc_max_per_levels": 2,
-      "ac_base": [0, 2],
+      "ac_base": [
+        0,
+        2
+      ],
       "ac_min_per_levels": 5,
       "ac_max_per_levels": 3,
-      "mac_base": [0, 0],
+      "mac_base": [
+        0,
+        0
+      ],
       "accuracy_base": 5,
       "accuracy_per_levels": 2,
       "agility_base": 5,
       "agility_per_levels": 5,
       "weight_base": 30,
       "weight_per_level": 2,
-      "attack_speed": 5
+      "attack_speed": 5,
+      "mc_base": [
+        0,
+        0
+      ],
+      "sc_base": [
+        0,
+        0
+      ]
     },
     "mage": {
       "name": "法师",
@@ -34,20 +51,39 @@
       "hp_per_level": 2,
       "mp_base": 12,
       "mp_per_level": 6,
-      "dc_base": [0, 1],
+      "dc_base": [
+        0,
+        1
+      ],
       "dc_min_per_levels": 4,
       "dc_max_per_levels": 2,
-      "ac_base": [0, 1],
+      "ac_base": [
+        0,
+        1
+      ],
       "ac_min_per_levels": 5,
       "ac_max_per_levels": 3,
-      "mac_base": [0, 1],
+      "mac_base": [
+        0,
+        1
+      ],
       "accuracy_base": 5,
       "accuracy_per_levels": 2,
       "agility_base": 6,
       "agility_per_levels": 5,
       "weight_base": 20,
       "weight_per_level": 1,
-      "attack_speed": 4
+      "attack_speed": 4,
+      "mc_base": [
+        0,
+        1
+      ],
+      "mc_min_per_levels": 3,
+      "mc_max_per_levels": 2,
+      "sc_base": [
+        0,
+        0
+      ]
     },
     "taoist": {
       "name": "道士",
@@ -56,20 +92,39 @@
       "hp_per_level": 3,
       "mp_base": 10,
       "mp_per_level": 4,
-      "dc_base": [0, 1],
+      "dc_base": [
+        0,
+        1
+      ],
       "dc_min_per_levels": 4,
       "dc_max_per_levels": 2,
-      "ac_base": [0, 1],
+      "ac_base": [
+        0,
+        1
+      ],
       "ac_min_per_levels": 5,
       "ac_max_per_levels": 3,
-      "mac_base": [0, 1],
+      "mac_base": [
+        0,
+        1
+      ],
       "accuracy_base": 5,
       "accuracy_per_levels": 2,
       "agility_base": 6,
       "agility_per_levels": 5,
       "weight_base": 22,
       "weight_per_level": 1,
-      "attack_speed": 5
+      "attack_speed": 5,
+      "sc_base": [
+        0,
+        1
+      ],
+      "sc_min_per_levels": 4,
+      "sc_max_per_levels": 3,
+      "mc_base": [
+        0,
+        0
+      ]
     }
   }
 }

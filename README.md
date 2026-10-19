@@ -48,19 +48,28 @@ mirsolo/
       resolver.py       结算器（唯一允许改血的地方，发事件）
     actor/
       factory.py        实体工厂（按数据表造人/造怪）
-      systems.py        7 个 ECS 系统（回血→冷却→选敌→攻击→奖励→刷怪）
+      systems.py        10 个 ECS 系统（回血→冷却→选敌→移动→技能→追击→出刀→结算→奖励→刷怪）
+    skills/
+      engine.py         技能系统（学习门槛 / MP / 冷却 / 距离门 / 伤害治疗路由）
     progression/
-      exp.py            经验查表 + 连升结转 + 属性成长
+      exp.py            经验查表 + 连升结转 + 属性成长（含 mc/sc）
     items/
       drops.py          组权重掉落（seed + kill_index 决定，防 save-scum）
+    presentation/
+      iso_camera.py     真等距相机（35.264° 俯角 / 正交投影 / 跟随缩放）
+      scene.py          实例收集与深度排序（纯数据，无 GL）
+      hud.py            HP/MP/EXP 条与状态文本（纯数据，无 GL）
+      renderer.py       pyglet 2.1 ShaderProgram 渲染（地面网格 1 draw / 实例 1 draw）
+      app.py            窗口、输入（WASD/空格/滚轮）与固定步长循环
     data/
       loader.py         七张表加载 + 结构校验 + 引用校验
     cli/
       smoke.py          headless 冒烟（10Hz 定步推演）
+      play.py           进游戏窗口（--shot 单帧截图，无 GL 时给出可操作提示）
   data/                 七张数值表（手录，1.76 骨架口径）
     exp.json            1-50 级经验曲线
-    classes.json        三职业基础属性与成长
-    skills.json         技能表（P0：战士四技）
+    classes.json        三职业基础属性与成长（含 mc/sc）
+    skills.json         技能表（P1-S1：三职业 16 技）
     monsters.json       怪物表（P0：6 种）
     items.json          装备表（P0：8 件）
     drops.json          掉落表（组权重 + gold 区间）
