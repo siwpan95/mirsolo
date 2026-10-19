@@ -1,0 +1,49 @@
+{
+  "meta": {
+    "version": "1.76-ref",
+    "note": "power_permille = 技能倍率（1000 = 100%）；cooldown 单位秒；level_req 为学习等级。P0 只落战士四技。",
+    "source": "docs/数据口径.md#skills"
+  },
+  "skills": {
+    "gongsha": {
+      "name": "攻杀剑术",
+      "class": "warrior",
+      "level_req": 7,
+      "power_permille": 1150,
+      "cooldown": 0,
+      "cost_mp": 0,
+      "kind": "physical",
+      "desc": "战士第一门主动技，7 级习得。单次攻击附加额外伤害，无消耗。"
+    },
+    "cisha": {
+      "name": "刺杀剑术",
+      "class": "warrior",
+      "level_req": 19,
+      "power_permille": 1300,
+      "cooldown": 1.5,
+      "cost_mp": 0,
+      "kind": "physical",
+      "desc": "19 级习得。对直线目标造成高倍伤害，原版可隔人打后排。"
+    },
+    "banyue": {
+      "name": "半月弯刀",
+      "class": "warrior",
+      "level_req": 22,
+      "power_permille": 1100,
+      "cooldown": 2.0,
+      "cost_mp": 0,
+      "kind": "physical_aoe",
+      "desc": "22 级习得。对身前扇形范围所有目标结算一次攻击。"
+    },
+    "liehuo": {
+      "name": "烈火剑法",
+      "class": "warrior",
+      "level_req": 32,
+      "power_permille": 1800,
+      "cooldown": 4.0,
+      "cost_mp": 0,
+      "kind": "physical",
+      "desc": "32 级习得。蓄力斩，单次极高倍率；原版可叠双烈火秒人。"
+    }
+  }
+}

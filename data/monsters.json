@@ -1,0 +1,99 @@
+{
+  "meta": {
+    "version": "1.76-ref",
+    "note": "P0 六种怪。经验值对齐公开口径（鸡 10 / 鹿 20 / 僵尸 150 / 尸王 300），其余为近似；dc/ac 均为 (下限, 上限)。",
+    "source": "docs/数据口径.md#monsters"
+  },
+  "monsters": {
+    "ji": {
+      "name": "鸡",
+      "level": 1,
+      "hp": 5,
+      "exp": 10,
+      "dc": [1, 2],
+      "ac": [0, 0],
+      "mac": [0, 0],
+      "accuracy": 3,
+      "agility": 3,
+      "attack_speed": 3,
+      "ai": "passive",
+      "move_speed": 0.6,
+      "size": 1
+    },
+    "daocaoren": {
+      "name": "稻草人",
+      "level": 2,
+      "hp": 12,
+      "exp": 12,
+      "dc": [1, 4],
+      "ac": [0, 2],
+      "mac": [0, 0],
+      "accuracy": 4,
+      "agility": 2,
+      "attack_speed": 3,
+      "ai": "passive",
+      "move_speed": 0.0,
+      "size": 1
+    },
+    "lu": {
+      "name": "鹿",
+      "level": 2,
+      "hp": 8,
+      "exp": 20,
+      "dc": [1, 3],
+      "ac": [0, 1],
+      "mac": [0, 0],
+      "accuracy": 3,
+      "agility": 5,
+      "attack_speed": 3,
+      "ai": "flee",
+      "move_speed": 0.9,
+      "size": 1
+    },
+    "kulou": {
+      "name": "骷髅",
+      "level": 10,
+      "hp": 35,
+      "exp": 90,
+      "dc": [2, 5],
+      "ac": [0, 2],
+      "mac": [0, 0],
+      "accuracy": 5,
+      "agility": 5,
+      "attack_speed": 4,
+      "ai": "aggressive",
+      "move_speed": 0.7,
+      "size": 1
+    },
+    "jiangshi": {
+      "name": "僵尸",
+      "level": 12,
+      "hp": 45,
+      "exp": 150,
+      "dc": [3, 6],
+      "ac": [1, 3],
+      "mac": [0, 0],
+      "accuracy": 6,
+      "agility": 3,
+      "attack_speed": 4,
+      "ai": "aggressive",
+      "move_speed": 0.6,
+      "size": 1
+    },
+    "shiwang": {
+      "name": "尸王",
+      "level": 15,
+      "hp": 180,
+      "exp": 300,
+      "dc": [6, 12],
+      "ac": [3, 6],
+      "mac": [0, 2],
+      "accuracy": 10,
+      "agility": 4,
+      "attack_speed": 4,
+      "ai": "elite",
+      "move_speed": 0.5,
+      "size": 2
+    }
+  }
+}

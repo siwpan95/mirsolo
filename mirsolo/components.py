@@ -1,0 +1,197 @@
+"""ECS 组件定义 —— mirsolo 的全部实体数据面。
+
+组件一律用 ``@dataclass`` 继承 ``allin_engine.Component``（引擎推荐形态，
+见 ``allin_engine/core/ecs.py`` 模块 docstring）。组件只存数据、不含逻辑；
+行为全部落在 ``mirsolo/actor/systems.py`` 与 ``mirsolo/combat/`` 的纯函数里。
+
+属性命名对齐传奇 1.76 的六维口径：
+``dc`` 攻击 / ``mc`` 魔法 / ``sc`` 道术 / ``ac`` 防御 / ``mac`` 魔御，
+每项都是 ``(下限, 上限)``。这是原版"攻击 0-30"这类写法的直接映射，
+也是伤害公式里 roll 区间的来源。
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from allin_engine import Component
+
+
+@dataclass
+class Identity(Component):
+    """身份：显示名 + 实体种类 + 阵营 + 数据表 id。
+
+    kind:
+        ``player`` / ``monster`` / ``npc`` / ``summon``
+    faction:
+        ``0`` = 玩家方，``1`` = 怪物方（单机里阵营只用于选敌与仇恨）
+    species:
+        ``monsters.json`` 里的 id（如 ``"jiangshi"``）。**必须与 eid 分开**：
+        ``World.entities`` 以 eid 为键，同种怪若共用 eid 会互相覆盖；
+        掉落/经验/刷新表则一律按 species 查表。
+    """
+
+    name: str = ""
+    kind: str = "monster"
+    faction: int = 1
+    species: str = ""
+
+
+@dataclass
+class Position(Component):
+    """世界坐标（瓦片单位）。P0 用整数网格寻路 + 连续坐标表现。"""
+
+    x: float = 0.0
+    y: float = 0.0
+    facing: int = 0  # 0..7，对应传奇八向
+
+
+@dataclass
+class Vitals(Component):
+    """生命 / 魔法。``max_*`` 由成长系统在升级时重算。"""
+
+    hp: int = 30
+    max_hp: int = 30
+    mp: int = 0
+    max_mp: int = 0
+
+    @property
+    def alive(self) -> bool:
+        return self.hp > 0
+
+    def heal(self, amount: int) -> int:
+        """回血，返回实际恢复量（不超上限）。"""
+        if amount <= 0:
+            return 0
+        before = self.hp
+        self.hp = min(self.max_hp, self.hp + amount)
+        return self.hp - before
+
+    def take(self, amount: int) -> int:
+        """扣血（不为负），返回实际扣除量。"""
+        if amount <= 0:
+            return 0
+        before = self.hp
+        self.hp = max(0, self.hp - amount)
+        return before - self.hp
+
+
+@dataclass
+class Attributes(Component):
+    """战斗属性六维 + 命中/敏捷/幸运，全部整数。
+
+    区间一律 ``(下限, 上限)``；单值属性（准确/敏捷/幸运）用同值元组或裸 int 均可
+    —— 这里统一用裸 int，避免读的时候再解包。
+    """
+
+    dc: tuple[int, int] = (1, 2)   # 攻击力
+    mc: tuple[int, int] = (0, 0)   # 魔法力
+    sc: tuple[int, int] = (0, 0)   # 道术
+    ac: tuple[int, int] = (0, 0)   # 防御
+    mac: tuple[int, int] = (0, 0)  # 魔御
+    accuracy: int = 5              # 准确
+    agility: int = 5               # 敏捷
+    luck: int = 0                  # 幸运（P2 起参与上限触发）
+
+
+@dataclass
+class Progression(Component):
+    """等级与经验：``exp`` 是**本级已积累**经验，升级时扣除本级阈值。"""
+
+    level: int = 1
+    exp: int = 0
+    class_id: str = "warrior"
+
+
+@dataclass
+class Body(Component):
+    """体型/负重：影响可穿装备（重量）与拾取容量。"""
+
+    weight: int = 0
+    max_weight: int = 30
+
+
+@dataclass
+class Wallet(Component):
+    """金币。传奇只有一种货币，单机也不引入第二货币。"""
+
+    gold: int = 0
+
+
+@dataclass
+class Loadout(Component):
+    """穿戴槽：``slot -> item_id``，未穿戴的槽不在字典里。"""
+
+    slots: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class Bag(Component):
+    """背包：``item_id -> 数量`` 的有序字典（P0 不做堆叠上限）。"""
+
+    capacity: int = 48
+    items: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def used(self) -> int:
+        return len(self.items)
+
+    @property
+    def full(self) -> bool:
+        return self.used >= self.capacity
+
+    def add(self, item_id: str, count: int = 1) -> int:
+        """放入物品，返回实际放入数量（背包满则 0 或部分）。"""
+        if count <= 0:
+            return 0
+        if self.full and item_id not in self.items:
+            return 0
+        self.items[item_id] = self.items.get(item_id, 0) + count
+        return count
+
+    def remove(self, item_id: str, count: int = 1) -> int:
+        """取出物品，返回实际取出数量。"""
+        have = self.items.get(item_id, 0)
+        take = min(have, max(0, count))
+        if take == 0:
+            return 0
+        left = have - take
+        if left:
+            self.items[item_id] = left
+        else:
+            self.items.pop(item_id, None)
+        return take
+
+
+@dataclass
+class Skills(Component):
+    """已学技能：``skill_id -> 熟练度等级``（1 起）。"""
+
+    known: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
+class Cooldowns(Component):
+    """技能冷却剩余秒数：``skill_id -> 剩余``。"""
+
+    remaining: dict[str, float] = field(default_factory=dict)
+
+    def ready(self, skill_id: str) -> bool:
+        return self.remaining.get(skill_id, 0.0) <= 0.0
+
+    def tick(self, dt: float) -> None:
+        """每帧递减（不删除 0 值，避免字典抖动影响确定性遍历顺序）。"""
+        for key in list(self.remaining):
+            left = self.remaining[key] - dt
+            self.remaining[key] = left if left > 0.0 else 0.0
+
+
+@dataclass
+class AiState(Component):
+    """怪物 AI 的极小状态：目标实体 id + 仇恨值 + 上次攻击刻。"""
+
+    target_id: int | None = None
+    aggro: int = 0
+    last_attack_tick: int = -10**9
+    home: tuple[float, float] = (0.0, 0.0)
+    leash: float = 12.0  # 脱离距离（超过则回巢）

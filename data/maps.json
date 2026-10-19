@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "version": "1.76-ref",
+    "note": "P0 两张图：比奇省外围（野外，1-10 级）+ 比奇矿洞一层（地牢，11-20 级）。kind=field 用 fBm 地形生成，dungeon 用连通性保证的地牢生成；spawns 是刷新表（每张图独立 roll 位置）。",
+    "source": "docs/数据口径.md#maps"
+  },
+  "maps": {
+    "biqi_field": {
+      "name": "比奇省外围",
+      "kind": "field",
+      "level_range": [1, 10],
+      "size": [64, 64],
+      "seed_role": "field",
+      "safe_zone": true,
+      "spawns": [
+        { "monster": "ji", "count": 16, "respawn_seconds": 25 },
+        { "monster": "lu", "count": 10, "respawn_seconds": 30 },
+        { "monster": "daocaoren", "count": 8, "respawn_seconds": 20 }
+      ],
+      "portals": [
+        { "to": "biqi_mine_1", "at": [60, 6], "name": "矿洞入口" }
+      ]
+    },
+    "biqi_mine_1": {
+      "name": "比奇矿洞一层",
+      "kind": "dungeon",
+      "level_range": [11, 20],
+      "size": [64, 64],
+      "seed_role": "dungeon",
+      "safe_zone": false,
+      "spawns": [
+        { "monster": "kulou", "count": 12, "respawn_seconds": 35 },
+        { "monster": "jiangshi", "count": 14, "respawn_seconds": 40 },
+        { "monster": "shiwang", "count": 1, "respawn_seconds": 180 }
+      ],
+      "portals": [
+        { "to": "biqi_field", "at": [4, 4], "name": "出口" }
+      ]
+    }
+  }
+}

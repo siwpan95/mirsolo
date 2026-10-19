@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mirsolo"
+version = "0.1.0.dev0"
+description = "热血传奇单机复刻（致敬，非官方）—— 基于 3dworld + allin-engine 的确定性 ARPG 逻辑核"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "siwpan" }]
+keywords = ["game", "arpg", "mir2", "single-player", "ecs", "deterministic"]
+dependencies = [
+    "3dworld>=0.3.0",
+    "allin-engine>=1.0.0",
+    "dse-core>=0.5.0",
+    "bloodmusic>=2.0.0",
+    "pyglet>=2.1,<3",
+]
+
+[project.scripts]
+mirsolo-smoke = "mirsolo.cli.smoke:main"
+
+[tool.setuptools.packages.find]
+include = ["mirsolo*"]
+
+[tool.setuptools]
+zip-safe = false
