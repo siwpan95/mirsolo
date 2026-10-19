@@ -18,28 +18,40 @@ from __future__ import annotations
 from allin_engine import Entity, System, World
 
 from mirsolo.components import (
+    AiState,
+    Bag,
     Cooldowns,
     Identity,
     Position,
     Progression,
     Skills,
+    SummonOwner,
     Vitals,
 )
+from mirsolo.actor.factory import spawn_monster
 from mirsolo.combat.resolver import CombatContext, CombatResolver
 from mirsolo.data.loader import SKILL_KINDS, GameData
 
 KEY_SKILL_INTENTS = "skill_intents"
 
-#: 引擎已实现的 kind（本批 P1-S1）
+#: 引擎已实现的 kind（P1-S1 伤害/治疗 + P1-S2 施毒/护盾/隐身/召唤）
 SUPPORTED_KINDS = frozenset({
     "physical", "physical_aoe", "magic", "magic_aoe", "taoist", "heal", "group_heal",
+    "poison", "buff_shield", "buff_invis", "summon",
 })
-#: 数据表已落、行为待接的 kind（P1-S2：施毒/魔法盾/隐身/召唤）
+#: 数据表已落、行为待接的 kind —— P1-S2 后应为空；不为空说明数据跑在实现前面
 PLANNED_KINDS = frozenset(SKILL_KINDS - SUPPORTED_KINDS)
 #: 数据表允许的全部 kind = loader 里的数据面定义（单一事实来源）
 ALL_KINDS = SKILL_KINDS
 
 EVT_SKILL_CAST = "skill:cast"
+EVT_SKILL_REJECTED = "skill:rejected"
+
+#: 熟练度上限（1 起，练满 3 级；P2 再接伤害/命中加成）
+MAX_PROFICIENCY = 3
+
+#: 只能对自己施放的 kind（护盾 / 隐身 / 召唤）
+SELF_KINDS = frozenset({"buff_shield", "buff_invis", "summon"})
 
 
 class SkillError(ValueError):
@@ -58,7 +70,11 @@ def _spec(data: GameData, skill_id: str) -> dict:
 
 
 def learn(entity: Entity, data: GameData, skill_id: str) -> None:
-    """学习技能。不满足门槛抛 :class:`SkillError`；已学会则幂等跳过。"""
+    """学习技能：职业 → 等级 → **技能书**，三道门全过才习得。
+
+    技能书是原版的核心约束（书要靠打/买），所以除了等级还必须真的持有
+    对应道具；学会即消耗一本。已学会则幂等跳过（不重复吃书）。
+    """
     spec = _spec(data, skill_id)
     ident = entity.get(Identity)
     prog = entity.get(Progression)
@@ -67,13 +83,24 @@ def learn(entity: Entity, data: GameData, skill_id: str) -> None:
         raise ValueError("learn 需要 Identity / Progression / Skills 组件")
     if ident.kind != "player":
         raise SkillError("not_a_player", "只有玩家可主动学习技能")
+    if skill_id in skills.known:
+        return  # 幂等：不重复吃书、不覆盖熟练度
     if spec["class"] != prog.class_id:
         raise SkillError("class_mismatch",
                          f"{spec['name']} 是{spec['class']}技能，{prog.class_id} 无法学习")
     if prog.level < int(spec["level_req"]):
         raise SkillError("level_too_low",
                          f"{spec['name']} 需要 {spec['level_req']} 级，当前 {prog.level} 级")
-    skills.known.setdefault(skill_id, 1)  # 熟练度 1 起，重复学习不覆盖进度
+    book_id = spec.get("book")
+    if book_id:
+        bag = entity.get(Bag)
+        if bag is None:
+            raise SkillError("no_bag", "没有背包，无法携带技能书")
+        if bag.items.get(book_id, 0) <= 0:
+            book_name = data.items["items"].get(book_id, {}).get("name", book_id)
+            raise SkillError("missing_book", f"{spec['name']} 需要技能书 {book_name}")
+        bag.remove(book_id, 1)
+    skills.known[skill_id] = 1  # 熟练度 1 起
 
 
 def can_cast(entity: Entity, data: GameData, skill_id: str) -> tuple[bool, str]:
@@ -122,12 +149,13 @@ class SkillSystem(System):
     def __init__(self, data: GameData, ctx: CombatContext) -> None:
         self.data = data
         self.ctx = ctx
+        self.world = ctx.world
         self.resolver = CombatResolver(ctx)
 
     # ── 路由 ────────────────────────────────────────
 
     def _resolve_kind(self, kind: str, caster: Entity, victims: list[Entity],
-                      power: int) -> list[dict]:
+                      power: int, spec: dict) -> list[dict]:
         """对 victims 逐个结算，返回每刀的摘要（进事件，也方便断言）。"""
         results: list[dict] = []
         for victim in victims:
@@ -140,14 +168,68 @@ class SkillSystem(System):
             elif kind in ("heal", "group_heal"):
                 amount = self.resolver.heal(caster, victim, power_permille=power)
                 outcome = {"heal": amount}
+            elif kind == "poison":
+                poison = self.resolver.apply_poison(
+                    caster, victim,
+                    damage_per_tick=int(spec.get("poison_damage", 1)),
+                    ticks=int(spec.get("poison_ticks", 5)),
+                    interval=int(spec.get("poison_interval", 10)),
+                )
+                outcome = {"damage_per_tick": poison.damage_per_tick,
+                           "ticks": poison.remaining_ticks}
+            elif kind == "buff_shield":
+                shield = self.resolver.apply_shield(caster, power_permille=power)
+                outcome = {"shield": shield.current, "shield_max": shield.max}
+            elif kind == "buff_invis":
+                buff = self.resolver.apply_invisible(
+                    caster, ticks=int(spec.get("duration_ticks", 60)))
+                outcome = {"until_tick": buff.until_tick}
+            elif kind == "summon":
+                outcome = {"summon": self._summon(caster, spec)}
             else:
-                continue  # PLANNED kind 在 can_cast 已拦截
+                continue  # 未知 kind 在 loader 校验阶段已拦
             results.append({
                 "target": victim.id,
                 "kind": kind,
                 **(outcome if isinstance(outcome, dict) else outcome.as_dict()),
             })
         return results
+
+    # ── 召唤 ────────────────────────────────────────
+
+    _summon_serial = 0
+
+    def _summon(self, caster: Entity, spec: dict) -> str:
+        """在施放者身旁召唤随从；超过 ``summon_max`` 时先清掉最旧的一只。"""
+        monster_id = spec.get("summon_monster")
+        if not monster_id:
+            raise SkillError("bad_data", f"{spec.get('name')} 缺少 summon_monster")
+        if monster_id not in self.data.monsters["monsters"]:
+            raise SkillError("bad_data", f"召唤目标 {monster_id!r} 不在怪物表")
+        keep = max(1, int(spec.get("summon_max", 1)))
+
+        owned = [e for e in self.world.each(SummonOwner, Identity)
+                 if e.get(SummonOwner).owner_id == caster.id]
+        for extra in owned[keep - 1:]:  # 留 keep-1 只，再加下面这只
+            self.world.remove_entity(extra.id)
+
+        pos = caster.get(Position)
+        faction = caster.get(Identity).faction
+        type(self)._summon_serial += 1
+        entity = spawn_monster(
+            self.world, self.data, monster_id,
+            x=float(int(pos.x) + 1), y=float(pos.y),
+            eid=f"summon:{caster.id}:{type(self)._summon_serial}",
+        )
+        ident = entity.get(Identity)
+        ident.kind = "summon"      # 既不算怪（不占刷新名额），也不占玩家位
+        ident.faction = faction    # 与主人同阵营，索敌自动生效
+        entity.add(SummonOwner(owner_id=caster.id))
+        ai = entity.get(AiState)
+        if ai is not None:
+            ai.home = (float(int(pos.x) + 1), float(pos.y))
+            ai.leash = max(ai.leash, 24.0)  # 随从要能跟着主人走远一点
+        return entity.eid
 
     # ── 系统入口 ────────────────────────────────────
 
@@ -190,8 +272,12 @@ class SkillSystem(System):
         radius = int(spec.get("aoe_radius", 0))
         power = int(spec.get("power_permille", 1000))
 
-        # 目标与距离门（heal/group_heal 的 target 为友方中心，可为施放者自身）
-        if kind in ("heal", "group_heal"):
+        # 目标与距离门（self 类技能目标就是自己；heal 的 target 是友方）
+        if kind in SELF_KINDS:
+            if target is not None and target is not caster:
+                raise SkillError("bad_target", f"{spec['name']} 只能对自己施放")
+            victims = [caster]
+        elif kind in ("heal", "group_heal"):
             if target is None:
                 target = caster
             center = target.get(Position)
@@ -228,7 +314,14 @@ class SkillSystem(System):
         if cooldown > 0:
             caster.get(Cooldowns).remaining[skill_id] = cooldown
 
-        results = self._resolve_kind(kind, caster, victims, power)
+        results = self._resolve_kind(kind, caster, victims, power, spec)
+
+        # 熟练度：每成功施放 +1，练满 MAX_PROFICIENCY 为止（P2 再接加成）
+        skills = caster.get(Skills)
+        if skills is not None:
+            skills.known[skill_id] = min(
+                MAX_PROFICIENCY, max(1, skills.known.get(skill_id, 1)) + 1)
+
         if self.ctx.bus is not None:
             self.ctx.bus.emit(EVT_SKILL_CAST, {
                 "caster": caster.id,

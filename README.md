@@ -69,7 +69,7 @@ mirsolo/
   data/                 七张数值表（手录，1.76 骨架口径）
     exp.json            1-50 级经验曲线
     classes.json        三职业基础属性与成长（含 mc/sc）
-    skills.json         技能表（P1-S1：三职业 16 技）
+    skills.json         技能表（三职业 16 技 + 技能书；P1-S2 起全部 kind 有行为）
     monsters.json       怪物表（P0：6 种）
     items.json          装备表（P0：8 件）
     drops.json          掉落表（组权重 + gold 区间）

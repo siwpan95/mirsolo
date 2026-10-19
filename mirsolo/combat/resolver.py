@@ -16,11 +16,14 @@ from dataclasses import dataclass
 from allin_engine import Entity, EventBus, World
 
 from mirsolo.combat import formulas
-from mirsolo.components import Attributes, Identity, Vitals
+from mirsolo.components import Attributes, Identity, Invisible, Poison, Shield, Vitals
 from mirsolo.determinism import Rng
 
 EVT_HIT = "combat:hit"
+EVT_MISS = "combat:miss"
 EVT_DEATH = "combat:death"
+EVT_HEAL = "combat:heal"
+EVT_POISON = "combat:poison"
 
 
 @dataclass
@@ -52,39 +55,59 @@ class CombatResolver:
 
     # ── 内部 ────────────────────────────────────────
 
+    def _damage(self, source: Entity | None, defender: Entity, amount: int,
+                kind: str, rolls: dict | None = None) -> int:
+        """统一的掉血入口：**先扣盾、再扣血**，并只在血归零时发死亡。
+
+        ``source`` 为 ``None`` 表示无归属伤害（例如施毒者已离场），
+        此时仍会发死亡事件，但 ``attacker`` 为 ``None``——
+        ``DeathRewardSystem`` 会跳过无归属者，不给经验。
+        """
+        vitals = defender.get(Vitals)
+        if vitals is None or amount <= 0:
+            return 0
+        shield = defender.get(Shield)
+        eaten = 0
+        if shield is not None:
+            eaten, amount = shield.absorb(amount)
+        dealt = vitals.take(amount)
+        if self.ctx.bus is not None:
+            self.ctx.bus.emit(
+                EVT_HIT,
+                {
+                    "attacker": source.id if source is not None else None,
+                    "defender": defender.id,
+                    "kind": kind,
+                    "damage": dealt,
+                    "absorbed": eaten,
+                    "hp_left": vitals.hp,
+                    "rolls": dict(rolls or {}),
+                    "tick": self.ctx.tick,
+                },
+            )
+            if not vitals.alive:
+                self.ctx.bus.emit(
+                    EVT_DEATH,
+                    {
+                        "attacker": source.id if source is not None else None,
+                        "defender": defender.id,
+                        "killer_eid": source.eid if source is not None else None,
+                        "victim_eid": defender.eid,
+                        "tick": self.ctx.tick,
+                    },
+                )
+        return dealt
+
     def _apply(self, attacker: Entity, defender: Entity, outcome, kind: str) -> None:
         """把结算结果落到 Vitals 上并发事件。"""
+        # 主动出手即破除隐身（原版：一打就现形）
+        attacker.remove(Invisible)
         if outcome.hit and outcome.damage > 0:
-            vitals = defender.get(Vitals)
-            if vitals is not None:
-                dealt = vitals.take(outcome.damage)
-                if self.ctx.bus is not None:
-                    self.ctx.bus.emit(
-                        EVT_HIT,
-                        {
-                            "attacker": attacker.id,
-                            "defender": defender.id,
-                            "kind": kind,
-                            "damage": dealt,
-                            "hp_left": vitals.hp,
-                            "rolls": outcome.rolls,
-                            "tick": self.ctx.tick,
-                        },
-                    )
-                if not vitals.alive and self.ctx.bus is not None:
-                    self.ctx.bus.emit(
-                        EVT_DEATH,
-                        {
-                            "attacker": attacker.id,
-                            "defender": defender.id,
-                            "killer_eid": attacker.eid,
-                            "victim_eid": defender.eid,
-                            "tick": self.ctx.tick,
-                        },
-                    )
+            self._damage(attacker, defender, outcome.damage, kind,
+                         rolls=dict(outcome.rolls))
         elif not outcome.hit and self.ctx.bus is not None:
             self.ctx.bus.emit(
-                "combat:miss",
+                EVT_MISS,
                 {
                     "attacker": attacker.id,
                     "defender": defender.id,
@@ -150,6 +173,69 @@ class CombatResolver:
         self._apply(attacker, defender, outcome, "taoist")
         return outcome
 
+    # ── 状态类（P1-S2） ─────────────────────────────
+
+    def apply_poison(self, caster: Entity, target: Entity, *,
+                     damage_per_tick: int, ticks: int,
+                     interval: int = 10) -> Poison:
+        """施毒：给目标挂持续伤害状态。
+
+        毒本身不 roll（原版"红绿毒"是固定掉血/掉防），所以这里直接取表值；
+        刷新策略：新的毒更强或来源不同就直接覆盖，避免叠多层互相打架。
+        """
+        current = target.get(Poison)
+        if current is None:
+            current = Poison()
+            target.add(current)
+        if (damage_per_tick >= current.damage_per_tick
+                or current.remaining_ticks <= 0
+                or current.source != caster.id):
+            current.damage_per_tick = max(1, int(damage_per_tick))
+            current.remaining_ticks = max(0, int(ticks))
+            current.interval = max(1, int(interval))
+            current.source = caster.id
+        if self.ctx.bus is not None:
+            self.ctx.bus.emit(EVT_POISON, {
+                "caster": caster.id,
+                "target": target.id,
+                "damage_per_tick": current.damage_per_tick,
+                "ticks": current.remaining_ticks,
+                "tick": self.ctx.tick,
+            })
+        return current
+
+    def apply_shield(self, caster: Entity, *, power_permille: int = 1000) -> Shield:
+        """魔法盾：护盾池 = roll(魔法力) × 倍率；再结盾取较大值，不叠加。"""
+        attr = caster.get(Attributes)
+        shield = caster.get(Shield)
+        if shield is None:
+            shield = Shield()
+            caster.add(shield)
+        mc = attr.mc if attr is not None else (0, 0)
+        rng = Rng(self.ctx.seed, f"shield:{caster.id}@{self.ctx.tick}")
+        value = formulas.roll_damage_range(mc, rng) * power_permille // 1000
+        shield.refresh(max(1, value))
+        return shield
+
+    def apply_invisible(self, caster: Entity, *, ticks: int) -> Invisible:
+        """隐身：``until_tick = 当前刻 + ticks``；出手破隐（见 ``_apply``）。"""
+        buff = caster.get(Invisible)
+        if buff is None:
+            buff = Invisible()
+            caster.add(buff)
+        buff.until_tick = int(self.ctx.tick) + max(0, int(ticks))
+        return buff
+
+    def tick_poison(self, defender: Entity) -> int:
+        """跳一次毒：返回本跳造成的伤害（走 ``_damage``，因此过护盾）。"""
+        poison = defender.get(Poison)
+        if poison is None or poison.remaining_ticks <= 0:
+            return 0
+        source = self.ctx.world.get_entity(poison.source) if poison.source is not None else None
+        dealt = self._damage(source, defender, poison.damage_per_tick, "poison")
+        poison.remaining_ticks -= 1
+        return dealt
+
     def heal(self, caster: Entity, target: Entity, *, power_permille: int = 1000) -> int:
         """治疗（道士治愈术）：返回实际恢复量。"""
         attr = caster.get(Attributes)
@@ -161,7 +247,7 @@ class CombatResolver:
         healed = vitals.heal(amount)
         if self.ctx.bus is not None and healed:
             self.ctx.bus.emit(
-                "combat:heal",
+                EVT_HEAL,
                 {"caster": caster.id, "target": target.id, "amount": healed,
                  "tick": self.ctx.tick},
             )

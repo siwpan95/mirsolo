@@ -1,7 +1,7 @@
 {
   "meta": {
     "version": "1.76-ref",
-    "note": "power_permille = 技能倍率（1000 = 100%）；cooldown 单位秒；level_req 为学习等级；cost_mp 为消耗魔法；range 为施放距离（切比雪夫格数，自身技能为 0）；aoe_radius 为范围半径（可选，仅 *_aoe/group_heal）。kind 分两类：engine 已实现（physical/physical_aoe/magic/magic_aoe/taoist/heal/group_heal）与 P1-S2 待实现（poison/buff_shield/buff_invis/summon，数据先落、行为后接，见 mirsolo/skills/engine.py 的 PLANNED_KINDS）。",
+    "note": "power_permille = 技能倍率（1000 = 100%）；cooldown 单位秒；level_req 为学习等级；cost_mp 为消耗魔法；range 为施放距离（切比雪夫格数，自身技能为 0）；aoe_radius 为范围半径（可选）；book 为学习所需技能书 item id（学会即消耗一本）；状态类附加字段：poison_damage/poison_ticks/poison_interval（施毒）、shield_power_permille（魔法盾）、duration_ticks（隐身）、summon_monster/summon_max（召唤）。kind 全集定义在 mirsolo/data/loader.py::SKILL_KINDS，引擎从那里导入。",
     "source": "docs/数据口径.md#skills"
   },
   "skills": {
@@ -14,7 +14,8 @@
       "cost_mp": 0,
       "range": 1,
       "kind": "physical",
-      "desc": "战士第一门主动技，7 级习得。单次攻击附加额外伤害，无消耗。"
+      "desc": "战士第一门主动技，7 级习得。单次攻击附加额外伤害，无消耗。",
+      "book": "book_gongsha"
     },
     "cisha": {
       "name": "刺杀剑术",
@@ -25,7 +26,8 @@
       "cost_mp": 0,
       "range": 2,
       "kind": "physical",
-      "desc": "19 级习得。对直线目标造成高倍伤害，原版可隔人打后排。"
+      "desc": "19 级习得。对直线目标造成高倍伤害，原版可隔人打后排。",
+      "book": "book_cisha"
     },
     "banyue": {
       "name": "半月弯刀",
@@ -37,7 +39,8 @@
       "range": 1,
       "aoe_radius": 1,
       "kind": "physical_aoe",
-      "desc": "22 级习得。对身前扇形范围所有目标各结算一次攻击。"
+      "desc": "22 级习得。对身前扇形范围所有目标各结算一次攻击。",
+      "book": "book_banyue"
     },
     "liehuo": {
       "name": "烈火剑法",
@@ -48,7 +51,8 @@
       "cost_mp": 0,
       "range": 1,
       "kind": "physical",
-      "desc": "32 级习得。蓄力斩，单次极高倍率；原版可叠双烈火秒人。"
+      "desc": "32 级习得。蓄力斩，单次极高倍率；原版可叠双烈火秒人。",
+      "book": "book_liehuo"
     },
     "huozhu": {
       "name": "火球术",
@@ -59,7 +63,8 @@
       "cost_mp": 3,
       "range": 8,
       "kind": "magic",
-      "desc": "法师第一个远程技，7 级习得。单体魔法伤害，必中吃魔御。"
+      "desc": "法师第一个远程技，7 级习得。单体魔法伤害，必中吃魔御。",
+      "book": "book_huozhu"
     },
     "leidian": {
       "name": "雷电术",
@@ -70,7 +75,8 @@
       "cost_mp": 9,
       "range": 8,
       "kind": "magic",
-      "desc": "17 级习得。高倍率单体雷电，法师中期主力输出。"
+      "desc": "17 级习得。高倍率单体雷电，法师中期主力输出。",
+      "book": "book_leidian"
     },
     "huoqiang": {
       "name": "火墙",
@@ -82,7 +88,8 @@
       "range": 6,
       "aoe_radius": 1,
       "kind": "magic_aoe",
-      "desc": "24 级习得。对目标区域持续灼烧（P1-S2 接持续伤害，当前为一次性范围结算）。"
+      "desc": "24 级习得。对目标区域持续灼烧（P1-S2 接持续伤害，当前为一次性范围结算）。",
+      "book": "book_huoqiang"
     },
     "mofadun": {
       "name": "魔法盾",
@@ -93,7 +100,9 @@
       "cost_mp": 35,
       "range": 0,
       "kind": "buff_shield",
-      "desc": "31 级习得。以魔法力形成护盾吸收伤害（P1-S2 接 Shield 组件）。"
+      "desc": "31 级习得。以魔法力形成护盾吸收伤害（P1-S2 接 Shield 组件）。",
+      "book": "book_mofadun",
+      "shield_power_permille": 1200
     },
     "bingpaoxiao": {
       "name": "冰咆哮",
@@ -105,7 +114,8 @@
       "range": 7,
       "aoe_radius": 2,
       "kind": "magic_aoe",
-      "desc": "35 级习得。大范围冰系魔法，法师练级核心群伤。"
+      "desc": "35 级习得。大范围冰系魔法，法师练级核心群伤。",
+      "book": "book_bingpaoxiao"
     },
     "zhiyu": {
       "name": "治愈术",
@@ -116,7 +126,8 @@
       "cost_mp": 4,
       "range": 6,
       "kind": "heal",
-      "desc": "道士第一门辅助技，7 级习得。按道术 roll 恢复目标生命。"
+      "desc": "道士第一门辅助技，7 级习得。按道术 roll 恢复目标生命。",
+      "book": "book_zhiyu"
     },
     "shidu": {
       "name": "施毒术",
@@ -127,7 +138,11 @@
       "cost_mp": 5,
       "range": 6,
       "kind": "poison",
-      "desc": "14 级习得。目标持续掉防掉血（P1-S2 接 Poison 组件）。"
+      "desc": "14 级习得。目标持续掉防掉血（P1-S2 接 Poison 组件）。",
+      "book": "book_shidu",
+      "poison_damage": 2,
+      "poison_ticks": 6,
+      "poison_interval": 10
     },
     "linghunhuofu": {
       "name": "灵魂火符",
@@ -138,7 +153,8 @@
       "cost_mp": 6,
       "range": 8,
       "kind": "taoist",
-      "desc": "18 级习得。道术符咒远程单体，道士主力输出。"
+      "desc": "18 级习得。道术符咒远程单体，道士主力输出。",
+      "book": "book_linghunhuofu"
     },
     "zhaohuankulou": {
       "name": "召唤骷髅",
@@ -149,7 +165,10 @@
       "cost_mp": 12,
       "range": 0,
       "kind": "summon",
-      "desc": "19 级习得。召唤骷髅随从协同作战（P1-S2 接 summon 实体与随从 AI）。"
+      "desc": "19 级习得。召唤骷髅随从协同作战（P1-S2 接 summon 实体与随从 AI）。",
+      "book": "book_zhaohuankulou",
+      "summon_monster": "kulou",
+      "summon_max": 1
     },
     "yinshen": {
       "name": "隐身术",
@@ -160,7 +179,9 @@
       "cost_mp": 10,
       "range": 0,
       "kind": "buff_invis",
-      "desc": "21 级习得。怪物短时间内失去对目标的仇恨（P1-S2 接 Buff 组件与 AI 视野过滤）。"
+      "desc": "21 级习得。怪物短时间内失去对目标的仇恨（P1-S2 接 Buff 组件与 AI 视野过滤）。",
+      "book": "book_yinshen",
+      "duration_ticks": 80
     },
     "jiti_zhiyu": {
       "name": "集体治愈术",
@@ -172,7 +193,8 @@
       "range": 5,
       "aoe_radius": 2,
       "kind": "group_heal",
-      "desc": "26 级习得。恢复目标区域内所有友方生命。"
+      "desc": "26 级习得。恢复目标区域内所有友方生命。",
+      "book": "book_jiti_zhiyu"
     },
     "zhaohuanshen": {
       "name": "召唤神兽",
@@ -183,7 +205,10 @@
       "cost_mp": 45,
       "range": 0,
       "kind": "summon",
-      "desc": "35 级习得。召唤神兽，道士后期核心随从（P1-S2）。"
+      "desc": "35 级习得。召唤神兽，道士后期核心随从（P1-S2）。",
+      "book": "book_zhaohuanshen",
+      "summon_monster": "shiwang",
+      "summon_max": 1
     }
   }
 }

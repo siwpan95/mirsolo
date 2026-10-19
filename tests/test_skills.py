@@ -8,10 +8,24 @@ from __future__ import annotations
 
 from mirsolo.actor.factory import spawn_monster, spawn_player
 from mirsolo.bootstrap import build_session, populate
-from mirsolo.components import Cooldowns, Position, Progression, Skills, Vitals
+from mirsolo.components import (
+    AiState,
+    Bag,
+    Cooldowns,
+    Identity,
+    Invisible,
+    Poison,
+    Position,
+    Progression,
+    Shield,
+    Skills,
+    SummonOwner,
+    Vitals,
+)
 from mirsolo.data.loader import GameData
 from mirsolo.progression.exp import apply_growth
 from mirsolo.skills import (
+    MAX_PROFICIENCY,
     PLANNED_KINDS,
     SUPPORTED_KINDS,
     SkillError,
@@ -55,15 +69,27 @@ def _make_caster(session, class_id: str, level: int):
     return player
 
 
+def _grant_book(player, skill_id: str, count: int = 1) -> str:
+    """把技能书塞进背包（学技能必须先有书）。"""
+    book_id = SKILLS[skill_id]["book"]
+    player.get(Bag).add(book_id, count)
+    return book_id
+
+
+def _learn_with_book(player, skill_id: str) -> None:
+    _grant_book(player, skill_id)
+    learn(player, DATA, skill_id)
+
+
 @case
 def test_learn_gates():
     """学习三道门：职业匹配、等级门槛、幂等。"""
     session, player = _session()
     try:
         warrior = _make_caster(session, "warrior", 7)
-        learn(warrior, DATA, "gongsha")           # 7 级战士学攻杀：OK
+        _learn_with_book(warrior, "gongsha")           # 7 级战士学攻杀：OK
         assert "gongsha" in warrior.get(Skills).known
-        learn(warrior, DATA, "gongsha")           # 重复学习幂等
+        _learn_with_book(warrior, "gongsha")           # 重复学习幂等
         assert warrior.get(Skills).known["gongsha"] == 1
 
         for sid in ("gongsha", "huozhu", "zhiyu"):
@@ -74,7 +100,7 @@ def test_learn_gates():
                 assert exc.code in ("level_too_low", "class_mismatch"), exc.code
 
         mage = _make_caster(session, "mage", 7)
-        learn(mage, DATA, "huozhu")               # 法师 7 级学火球：OK
+        _learn_with_book(mage, "huozhu")               # 法师 7 级学火球：OK
         try:
             learn(mage, DATA, "zhiyu")            # 道士技能
             raise AssertionError("法师不该学得会治愈术")
@@ -102,22 +128,25 @@ def test_cast_requires_learned():
 
 
 @case
-def test_planned_kinds_are_rejected():
-    """P1-S2 待实现 kind 必须被明确拒绝——数据先落、行为后接，不许静默失败。"""
+def test_no_kind_lags_behind_implementation():
+    """数据不许跑在实现前面：表里每个 kind 都必须已有行为。
+
+    P1-S1 时表里有 4 个 kind 只落数据（poison/buff_shield/buff_invis/summon），
+    由 ``PLANNED_KINDS`` 兜着；P1-S2 把行为补齐后它必须变空。
+    这条断言的作用是：**以后往表里加新 kind 而没写行为，测试立刻红**。
+    """
+    assert PLANNED_KINDS == frozenset(), f"这些 kind 只有数据没有行为：{PLANNED_KINDS}"
+    kinds = {spec["kind"] for spec in SKILLS.values()}
+    assert kinds <= SUPPORTED_KINDS, kinds - SUPPORTED_KINDS
+    # 全部 16 技在满级满蓝下都应为"可施放"（不带目标，只看资源/学习门）
     session, player = _session()
     try:
         for sid, spec in SKILLS.items():
-            if spec["kind"] not in PLANNED_KINDS:
-                continue
-            caster = _make_caster(session, spec["class"], 35)  # 满足等级与职业
-            learn(caster, DATA, sid)
+            caster = _make_caster(session, spec["class"], 50)
+            _learn_with_book(caster, sid)
+            caster.get(Vitals).mp = caster.get(Vitals).max_mp
             ok, code = can_cast(caster, DATA, sid)
-            assert not ok and code == "kind_not_implemented", (sid, code)
-        # 已实现 kind 全部可放（资源足够时）
-        taoist = _make_caster(session, "taoist", 35)
-        learn(taoist, DATA, "zhiyu")
-        ok, code = can_cast(taoist, DATA, "zhiyu")
-        assert ok, code
+            assert ok, (sid, code)
     finally:
         session.shutdown()
 
@@ -128,7 +157,7 @@ def test_mp_deducted_and_damage_dealt():
     session, player = _session()
     try:
         mage = _make_caster(session, "mage", 7)
-        learn(mage, DATA, "huozhu")
+        _learn_with_book(mage, "huozhu")
         mob = spawn_monster(session.world, DATA, "ji",
                             x=mage.get(Position).x + 2, y=mage.get(Position).y)
         mob_hp0 = mob.get(Vitals).hp
@@ -147,7 +176,7 @@ def test_insufficient_mp_blocks_cast():
     session, player = _session()
     try:
         mage = _make_caster(session, "mage", 7)
-        learn(mage, DATA, "huozhu")
+        _learn_with_book(mage, "huozhu")
         mage.get(Vitals).mp = HUOZHU_MP - 1        # 刚好差 1 点
         mob = spawn_monster(session.world, DATA, "ji",
                             x=mage.get(Position).x + 2, y=mage.get(Position).y)
@@ -170,7 +199,7 @@ def test_cooldown_blocks_and_expires():
     session, player = _session()
     try:
         mage = _make_caster(session, "mage", 7)
-        learn(mage, DATA, "huozhu")
+        _learn_with_book(mage, "huozhu")
         mob = spawn_monster(session.world, DATA, "ji",
                             x=mage.get(Position).x + 2, y=mage.get(Position).y)
         session.cast_skill(mage, "huozhu", mob)
@@ -200,7 +229,7 @@ def test_range_gate():
     session, player = _session()
     try:
         mage = _make_caster(session, "mage", 7)
-        learn(mage, DATA, "huozhu")
+        _learn_with_book(mage, "huozhu")
         far = HUOZHU_RANGE + 1
         mob = spawn_monster(session.world, DATA, "ji",
                             x=mage.get(Position).x + far, y=mage.get(Position).y)
@@ -220,7 +249,7 @@ def test_heal_restores_by_sc_roll():
     session, player = _session()
     try:
         taoist = _make_caster(session, "taoist", 7)
-        learn(taoist, DATA, "zhiyu")
+        _learn_with_book(taoist, "zhiyu")
         vitals = taoist.get(Vitals)
         vitals.hp = 5                               # 先打掉一批血
         mp0 = vitals.mp
@@ -239,7 +268,7 @@ def test_aoe_hits_all_in_radius():
     session, player = _session()
     try:
         warrior = _make_caster(session, "warrior", 22)
-        learn(warrior, DATA, "banyue")
+        _learn_with_book(warrior, "banyue")
         px, py = warrior.get(Position).x, warrior.get(Position).y
         near1 = spawn_monster(session.world, DATA, "ji", x=px + 1, y=py)
         near2 = spawn_monster(session.world, DATA, "ji", x=px + 1, y=py + 1)  # 距目标 1 格
@@ -259,7 +288,7 @@ def test_magic_aoe_and_group_heal_shapes():
     session, player = _session()
     try:
         mage = _make_caster(session, "mage", 35)
-        learn(mage, DATA, "bingpaoxiao")
+        _learn_with_book(mage, "bingpaoxiao")
         px, py = mage.get(Position).x, mage.get(Position).y
         mobs = [spawn_monster(session.world, DATA, "ji", x=px + dx, y=py)
                 for dx in (1, 2)]
@@ -270,11 +299,189 @@ def test_magic_aoe_and_group_heal_shapes():
             assert mob.get(Vitals).hp < hp0, "冰咆哮没覆盖到半径内目标"
 
         taoist = _make_caster(session, "taoist", 26)
-        learn(taoist, DATA, "jiti_zhiyu")
+        _learn_with_book(taoist, "jiti_zhiyu")
         taoist.get(Vitals).hp = 3
         session.cast_skill(taoist, "jiti_zhiyu", taoist)
         session.step(2)
         assert taoist.get(Vitals).hp > 3, "集体治愈没生效"
+    finally:
+        session.shutdown()
+
+
+@case
+def test_book_gate_and_consumption():
+    """技能书是真门槛：没书学不会；学会消耗一本；已学再学不吃书。"""
+    session, player = _session()
+    try:
+        taoist = _make_caster(session, "taoist", 35)
+        try:
+            learn(taoist, DATA, "zhiyu")
+            raise AssertionError("没有技能书也学会了")
+        except SkillError as exc:
+            assert exc.code == "missing_book", exc.code
+        assert "zhiyu" not in taoist.get(Skills).known
+
+        book_id = _grant_book(taoist, "zhiyu", 2)
+        learn(taoist, DATA, "zhiyu")
+        assert taoist.get(Bag).items.get(book_id, 0) == 1, "没消耗技能书"
+
+        learn(taoist, DATA, "zhiyu")  # 幂等：不再吃第二本
+        assert taoist.get(Bag).items.get(book_id, 0) == 1, "重复学习又吃了一本"
+        assert taoist.get(Skills).known["zhiyu"] == 1
+    finally:
+        session.shutdown()
+
+
+@case
+def test_proficiency_grows_and_caps():
+    """熟练度：每成功施放 +1，封顶 MAX_PROFICIENCY；被拒的施放不涨。"""
+    session, player = _session()
+    try:
+        mage = _make_caster(session, "mage", 7)
+        _learn_with_book(mage, "huozhu")
+        mob = spawn_monster(session.world, DATA, "shiwang",  # 血厚，打不死
+                            x=mage.get(Position).x + 2, y=mage.get(Position).y)
+        seen = [mage.get(Skills).known["huozhu"]]
+        for _ in range(MAX_PROFICIENCY + 2):
+            mage.get(Vitals).mp = mage.get(Vitals).max_mp
+            session.cast_skill(mage, "huozhu", mob)
+            session.step(int(SKILLS["huozhu"]["cooldown"] / session.tick_dt) + 2)
+            seen.append(mage.get(Skills).known["huozhu"])
+        assert seen[1] == 2 and seen[-1] == MAX_PROFICIENCY, seen
+        assert seen == sorted(seen), f"熟练度出现回落：{seen}"
+    finally:
+        session.shutdown()
+
+
+@case
+def test_poison_damage_over_time():
+    """施毒：挂上 Poison 状态后按 interval 跳伤，跳完自动结束。"""
+    session, player = _session()
+    try:
+        taoist = _make_caster(session, "taoist", 14)
+        _learn_with_book(taoist, "shidu")
+        spec = SKILLS["shidu"]
+        mob = spawn_monster(session.world, DATA, "shiwang",  # 180 血，毒不死便于观察
+                            x=taoist.get(Position).x + 2, y=taoist.get(Position).y)
+        hp0 = mob.get(Vitals).hp
+        session.cast_skill(taoist, "shidu", mob)
+        session.step(2)
+        poison = mob.get(Poison)
+        assert poison is not None and poison.remaining_ticks == spec["poison_ticks"], poison
+
+        # 跳一次（interval 刻）就掉 spec["poison_damage"] 点
+        session.step(int(spec["poison_interval"]))
+        assert mob.get(Vitals).hp <= hp0 - spec["poison_damage"], (hp0, mob.get(Vitals).hp)
+
+        # 全部跳完后状态结束，不再掉血
+        # ⚠️ 不能用 hp 等值断言：RegenSystem 每 20 刻回 1 点血，
+        #    怪的血量不是单调递减。改数"毒伤事件"的条数。
+        session.step(int(spec["poison_interval"] * spec["poison_ticks"]))
+        assert poison.remaining_ticks <= 0
+        poison_hits: list[dict] = []
+        session.bus.subscribe("combat:hit", lambda p: poison_hits.append(p)
+                              if p.get("kind") == "poison" else None)
+        session.step(int(spec["poison_interval"] * 3))
+        assert poison_hits == [], f"毒结束后仍在掉血：{poison_hits}"
+    finally:
+        session.shutdown()
+
+
+@case
+def test_shield_absorbs_before_hp():
+    """魔法盾：先扣盾、再扣血。盾还在时血量必须一点不掉。"""
+    session, player = _session()
+    try:
+        mage = _make_caster(session, "mage", 31)
+        _learn_with_book(mage, "mofadun")
+        session.cast_skill(mage, "mofadun", mage)
+        session.step(2)
+        shield = mage.get(Shield)
+        assert shield is not None and shield.current > 0, shield
+
+        # 放一只相邻怪来砍：伤害应该被盾吃掉，血量不动
+        spawn_monster(session.world, DATA, "jiangshi",
+                      x=mage.get(Position).x + 1, y=mage.get(Position).y)
+        hp0 = mage.get(Vitals).hp
+        session.step(40)
+        assert mage.get(Shield).current < shield.max, "盾一点没消耗"
+        assert mage.get(Vitals).hp == hp0, "盾还在却掉血了"
+    finally:
+        session.shutdown()
+
+
+@case
+def test_invisibility_hides_and_breaks_on_attack():
+    """隐身：怪立刻丢失目标；主动出手即破隐、怪重新锁定。"""
+    session, player = _session()
+    try:
+        taoist = _make_caster(session, "taoist", 21)
+        _learn_with_book(taoist, "yinshen")
+        mob = spawn_monster(session.world, DATA, "kulou",
+                            x=taoist.get(Position).x + 1, y=taoist.get(Position).y)
+        session.step(2)
+        assert mob.get(AiState).target_id is not None, "前置条件不成立：怪没锁定玩家"
+
+        session.cast_skill(taoist, "yinshen", taoist)
+        session.step(3)
+        assert taoist.get(Invisible).until_tick > session.tick
+        assert mob.get(AiState).target_id is None, "隐身了怪还盯着我"
+
+        # ⚠️ 同样不能用 hp 等值断言（RegenSystem 会回血），改数落在玩家身上的命中事件
+        hits: list[dict] = []
+        session.bus.subscribe("combat:hit",
+                              lambda p: hits.append(p) if p.get("defender") == taoist.id else None)
+        session.step(30)
+        assert hits == [], f"隐身期间被打：{hits}"
+
+        session.queue_attack(taoist, mob)  # 主动出手 → 破隐
+        session.step(3)
+        assert taoist.get(Invisible) is None, "出手没有破隐"
+        assert mob.get(AiState).target_id is not None, "破隐后怪没有重新锁定"
+    finally:
+        session.shutdown()
+
+
+@case
+def test_summon_fights_and_rewards_owner():
+    """召唤：随从替主人打怪，经验与掉落记到**主人**头上（不是随从）。"""
+    session, player = _session()
+    try:
+        taoist = _make_caster(session, "taoist", 19)
+        _learn_with_book(taoist, "zhaohuankulou")
+        px, py = taoist.get(Position).x, taoist.get(Position).y
+        exp0 = taoist.get(Progression).exp
+        spawn_monster(session.world, DATA, "ji", x=px + 2, y=py)
+
+        session.cast_skill(taoist, "zhaohuankulou", taoist)
+        session.step(2)
+        summons = [e for e in session.world.each(SummonOwner)
+                   if e.get(SummonOwner).owner_id == taoist.id]
+        assert len(summons) == 1, [e.eid for e in summons]
+        assert summons[0].get(Identity).kind == "summon"
+        assert summons[0].get(Identity).faction == taoist.get(Identity).faction
+
+        session.step(200)  # 随从走过去把鸡砍了
+        assert taoist.get(Progression).exp > exp0, "随从击杀没给主人经验"
+        assert any(r["monster"] == "ji" for r in session.rewards()), session.rewards()
+    finally:
+        session.shutdown()
+
+
+@case
+def test_summon_respects_max_count():
+    """召唤上限：再召唤不会越堆越多（旧的那只被替换）。"""
+    session, player = _session()
+    try:
+        taoist = _make_caster(session, "taoist", 35)
+        _learn_with_book(taoist, "zhaohuankulou")
+        for _ in range(2):
+            taoist.get(Vitals).mp = taoist.get(Vitals).max_mp
+            session.cast_skill(taoist, "zhaohuankulou", taoist)
+            session.step(int(SKILLS["zhaohuankulou"]["cooldown"] / session.tick_dt) + 2)
+        summons = [e for e in session.world.each(SummonOwner)
+                   if e.get(SummonOwner).owner_id == taoist.id]
+        assert len(summons) == SKILLS["zhaohuankulou"]["summon_max"], len(summons)
     finally:
         session.shutdown()
 

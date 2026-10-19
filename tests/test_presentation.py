@@ -17,6 +17,7 @@ from mirsolo.presentation.scene import (
 
 CASES = []
 DATA = GameData.load()
+SKILLS = DATA.skills["skills"]
 
 
 def case(fn):
@@ -147,6 +148,50 @@ def test_hud_handles_max_level_caption():
     layout = _layout(progression=P(level=50, exp=0))
     assert layout.exp.caption == "MAX"
     assert layout.exp.ratio == 0.0
+
+
+@case
+def test_hud_skill_slots_order_and_readiness():
+    """技能栏：顺序 = 传入序（键位 1..5），就绪态由冷却值决定。"""
+    from mirsolo.components import Cooldowns as C
+
+    known = {"zhaohuankulou": 1, "zhiyu": 2, "shidu": 1}
+    layout = _layout(known_skills=known,
+                     skill_names={s: SKILLS[s]["name"] for s in known},
+                     cooldowns=C(remaining={"zhiyu": 0.4}).remaining)
+    assert [s.key for s in layout.skills] == ["1", "2", "3"]
+    # 插入序保留：技能栏顺序就是调用方排好的（窗口层按学习等级排）
+    assert [s.name for s in layout.skills] == ["召唤骷髅", "治愈术", "施毒术"]
+    by_name = {s.name: s for s in layout.skills}
+    assert by_name["治愈术"].ready is False      # 还在冷却
+    assert by_name["召唤骷髅"].ready is True
+    assert by_name["治愈术"].proficiency == 2
+    for slot in layout.skills:                   # 格子必须落在屏内
+        rect = slot.rect
+        assert 0 <= rect.x and rect.right <= 1280
+        assert 0 <= rect.y and rect.top <= 720
+
+
+@case
+def test_hud_skill_slots_capped_and_absent():
+    """技能栏最多 5 格；没学技能时整条栏不存在（不画 5 个空框）。"""
+    known = {f"s{i}": 1 for i in range(8)}
+    names = {f"s{i}": f"技能{i}" for i in range(8)}
+    layout = _layout(known_skills=known, skill_names=names)
+    assert len(layout.skills) == 5
+    assert "skills" in layout.panels
+
+    empty = _layout()
+    assert empty.skills == [] and "skills" not in empty.panels
+
+
+@case
+def test_hud_shield_text_only_when_active():
+    """护盾提示只在有盾时出现——常驻一行 0/0 是视觉噪音。"""
+    off = _layout()
+    assert not any(t.text.startswith("盾") for t in off.texts)
+    on = _layout(shield=(12, 16))
+    assert any(t.text == "盾 12/16" for t in on.texts)
 
 
 def run() -> tuple[int, int]:

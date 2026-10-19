@@ -1,15 +1,22 @@
 {
   "meta": {
     "version": "1.76-ref",
-    "note": "P0 八件起步装备。武器 atk / 防具 ac 均为 (下限, 上限)| null；weight 与等级需求按公开资料，个别为近似。",
+    "note": "装备 kind=equip（slot 必填）；技能书 kind=book（teaches 指向 skills.json 的 id，slot 为 null）。武器 atk / 防具 ac 均为 (下限, 上限)| null；weight 与等级需求按公开资料，个别为近似。技能书价格 = 500 × 学习等级（近似，P1 商店按此定价）。",
     "source": "docs/数据口径.md#items"
   },
   "items": {
     "mujian": {
       "name": "木剑",
       "slot": "weapon",
-      "class": ["warrior", "mage", "taoist"],
-      "atk": [2, 5],
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "atk": [
+        2,
+        5
+      ],
       "mc": null,
       "sc": null,
       "ac": null,
@@ -19,13 +26,19 @@
       "durability": 10,
       "level_req": 1,
       "price": 120,
-      "tier": "common"
+      "tier": "common",
+      "kind": "equip"
     },
     "wumujian": {
       "name": "乌木剑",
       "slot": "weapon",
-      "class": ["warrior"],
-      "atk": [4, 9],
+      "class": [
+        "warrior"
+      ],
+      "atk": [
+        4,
+        9
+      ],
       "mc": null,
       "sc": null,
       "ac": null,
@@ -35,13 +48,19 @@
       "durability": 12,
       "level_req": 10,
       "price": 900,
-      "tier": "common"
+      "tier": "common",
+      "kind": "equip"
     },
     "zhanmadao": {
       "name": "斩马刀",
       "slot": "weapon",
-      "class": ["warrior"],
-      "atk": [7, 15],
+      "class": [
+        "warrior"
+      ],
+      "atk": [
+        7,
+        15
+      ],
       "mc": null,
       "sc": null,
       "ac": null,
@@ -51,87 +70,457 @@
       "durability": 18,
       "level_req": 20,
       "price": 3200,
-      "tier": "common"
+      "tier": "common",
+      "kind": "equip"
     },
     "buyi": {
       "name": "布衣",
       "slot": "armor",
-      "class": ["warrior", "mage", "taoist"],
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
       "atk": null,
       "mc": null,
       "sc": null,
-      "ac": [2, 3],
-      "mac": [0, 1],
+      "ac": [
+        2,
+        3
+      ],
+      "mac": [
+        0,
+        1
+      ],
       "accuracy": 0,
       "weight": 4,
       "durability": 10,
       "level_req": 1,
       "price": 80,
-      "tier": "common"
+      "tier": "common",
+      "kind": "equip"
     },
     "qingtongkuijia": {
       "name": "青铜盔甲",
       "slot": "armor",
-      "class": ["warrior"],
+      "class": [
+        "warrior"
+      ],
       "atk": null,
       "mc": null,
       "sc": null,
-      "ac": [3, 5],
-      "mac": [0, 1],
+      "ac": [
+        3,
+        5
+      ],
+      "mac": [
+        0,
+        1
+      ],
       "accuracy": 0,
       "weight": 14,
       "durability": 18,
       "level_req": 10,
       "price": 1500,
-      "tier": "common"
+      "tier": "common",
+      "kind": "equip"
     },
     "zhongxingkuijia": {
       "name": "中型盔甲",
       "slot": "armor",
-      "class": ["warrior"],
+      "class": [
+        "warrior"
+      ],
       "atk": null,
       "mc": null,
       "sc": null,
-      "ac": [4, 6],
-      "mac": [0, 2],
+      "ac": [
+        4,
+        6
+      ],
+      "mac": [
+        0,
+        2
+      ],
       "accuracy": 0,
       "weight": 20,
       "durability": 22,
       "level_req": 15,
       "price": 4200,
-      "tier": "common"
+      "tier": "common",
+      "kind": "equip"
     },
     "pihelmet": {
       "name": "皮头盔",
       "slot": "helmet",
-      "class": ["warrior", "mage", "taoist"],
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
       "atk": null,
       "mc": null,
       "sc": null,
-      "ac": [1, 2],
-      "mac": [0, 1],
+      "ac": [
+        1,
+        2
+      ],
+      "mac": [
+        0,
+        1
+      ],
       "accuracy": 0,
       "weight": 3,
       "durability": 8,
       "level_req": 5,
       "price": 200,
-      "tier": "common"
+      "tier": "common",
+      "kind": "equip"
     },
     "qingtongtoukui": {
       "name": "青铜头盔",
       "slot": "helmet",
-      "class": ["warrior"],
+      "class": [
+        "warrior"
+      ],
       "atk": null,
       "mc": null,
       "sc": null,
-      "ac": [2, 4],
-      "mac": [0, 1],
+      "ac": [
+        2,
+        4
+      ],
+      "mac": [
+        0,
+        1
+      ],
       "accuracy": 0,
       "weight": 8,
       "durability": 14,
       "level_req": 12,
       "price": 1100,
-      "tier": "common"
+      "tier": "common",
+      "kind": "equip"
+    },
+    "book_gongsha": {
+      "name": "《攻杀剑术》",
+      "kind": "book",
+      "teaches": "gongsha",
+      "class": [
+        "warrior"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 7,
+      "price": 3500,
+      "tier": "book"
+    },
+    "book_cisha": {
+      "name": "《刺杀剑术》",
+      "kind": "book",
+      "teaches": "cisha",
+      "class": [
+        "warrior"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 19,
+      "price": 9500,
+      "tier": "book"
+    },
+    "book_banyue": {
+      "name": "《半月弯刀》",
+      "kind": "book",
+      "teaches": "banyue",
+      "class": [
+        "warrior"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 22,
+      "price": 11000,
+      "tier": "book"
+    },
+    "book_liehuo": {
+      "name": "《烈火剑法》",
+      "kind": "book",
+      "teaches": "liehuo",
+      "class": [
+        "warrior"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 32,
+      "price": 16000,
+      "tier": "book"
+    },
+    "book_huozhu": {
+      "name": "《火球术》",
+      "kind": "book",
+      "teaches": "huozhu",
+      "class": [
+        "mage"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 7,
+      "price": 3500,
+      "tier": "book"
+    },
+    "book_leidian": {
+      "name": "《雷电术》",
+      "kind": "book",
+      "teaches": "leidian",
+      "class": [
+        "mage"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 17,
+      "price": 8500,
+      "tier": "book"
+    },
+    "book_huoqiang": {
+      "name": "《火墙》",
+      "kind": "book",
+      "teaches": "huoqiang",
+      "class": [
+        "mage"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 24,
+      "price": 12000,
+      "tier": "book"
+    },
+    "book_mofadun": {
+      "name": "《魔法盾》",
+      "kind": "book",
+      "teaches": "mofadun",
+      "class": [
+        "mage"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 31,
+      "price": 15500,
+      "tier": "book"
+    },
+    "book_bingpaoxiao": {
+      "name": "《冰咆哮》",
+      "kind": "book",
+      "teaches": "bingpaoxiao",
+      "class": [
+        "mage"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 35,
+      "price": 17500,
+      "tier": "book"
+    },
+    "book_zhiyu": {
+      "name": "《治愈术》",
+      "kind": "book",
+      "teaches": "zhiyu",
+      "class": [
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 7,
+      "price": 3500,
+      "tier": "book"
+    },
+    "book_shidu": {
+      "name": "《施毒术》",
+      "kind": "book",
+      "teaches": "shidu",
+      "class": [
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 14,
+      "price": 7000,
+      "tier": "book"
+    },
+    "book_linghunhuofu": {
+      "name": "《灵魂火符》",
+      "kind": "book",
+      "teaches": "linghunhuofu",
+      "class": [
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 18,
+      "price": 9000,
+      "tier": "book"
+    },
+    "book_zhaohuankulou": {
+      "name": "《召唤骷髅》",
+      "kind": "book",
+      "teaches": "zhaohuankulou",
+      "class": [
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 19,
+      "price": 9500,
+      "tier": "book"
+    },
+    "book_yinshen": {
+      "name": "《隐身术》",
+      "kind": "book",
+      "teaches": "yinshen",
+      "class": [
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 21,
+      "price": 10500,
+      "tier": "book"
+    },
+    "book_jiti_zhiyu": {
+      "name": "《集体治愈术》",
+      "kind": "book",
+      "teaches": "jiti_zhiyu",
+      "class": [
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 26,
+      "price": 13000,
+      "tier": "book"
+    },
+    "book_zhaohuanshen": {
+      "name": "《召唤神兽》",
+      "kind": "book",
+      "teaches": "zhaohuanshen",
+      "class": [
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 1,
+      "durability": 0,
+      "level_req": 35,
+      "price": 17500,
+      "tier": "book"
     }
   }
 }

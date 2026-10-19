@@ -29,8 +29,11 @@ from mirsolo.components import (
     Bag,
     Cooldowns,
     Identity,
+    Invisible,
+    Poison,
     Position,
     Progression,
+    SummonOwner,
     Vitals,
     Wallet,
 )
@@ -164,7 +167,7 @@ class MobAttackSystem(System):
         intents = list(world.get_data(KEY_INTENTS, []))
         for mob in world.each(AiState, Position, Identity, Vitals):
             ident = mob.get(Identity)
-            if ident.kind != "monster":
+            if ident.kind not in ("monster", "summon"):
                 continue
             state = mob.get(AiState)
             if state.target_id is None:
@@ -223,28 +226,35 @@ class CooldownSystem(System):
 
 
 class AiTargetSystem(System):
-    """极简选敌：主动怪锁定视野内最近的敌对实体，超过脱战距离回巢。
+    """极简选敌：锁定视野内最近的**敌对阵营**实体，超过脱战距离回巢。
 
     priority 必须**小于** ``MobChaseSystem``：先选目标再走位，
     否则追击永远慢一拍（每刻都在追上一刻的目标）。
 
-    两个距离门控缺一不可：
+    三个门控缺一不可：
 
     * ``vision``（切比雪夫）——**视野外不建立仇恨**。少了它，怪会盯住半张图外的
       玩家，走到脱战边界→丢目标→回巢→重新锁定，来回折返永不归位。
     * ``leash``（欧氏，相对出生点）——超过即放弃目标，由 ``MobChaseSystem`` 送回巢。
+    * **隐身**——``Invisible.until_tick`` 未过期者一律不可选为目标。
+
+    索敌按 ``faction`` 判定而非 ``kind``：这样道士的召唤骷髅（faction 0）
+    能主动打怪，怪也会反过来打召唤物，不必为随从另写一套 AI。
     """
 
     priority = 11
 
     def update(self, world: World, dt: float) -> None:
-        players = [e for e in world.each(Identity, Position)
-                   if e.get(Identity).kind == "player"]
+        tick = int(world.get_data(KEY_TICK, 0))
+        candidates = [
+            e for e in world.each(Identity, Position, Vitals)
+            if e.get(Vitals).alive and not _is_invisible(e, tick)
+        ]
         for mob in world.each(AiState, Identity, Position):
             state = mob.get(AiState)
             ident = mob.get(Identity)
             pos = mob.get(Position)
-            if ident.kind != "monster":
+            if ident.kind not in ("monster", "summon"):
                 continue
             home_x, home_y = state.home
             if (pos.x - home_x) ** 2 + (pos.y - home_y) ** 2 > state.leash ** 2:
@@ -252,18 +262,54 @@ class AiTargetSystem(System):
                 continue
             best: Entity | None = None
             best_dist = float("inf")
-            for player in players:
-                if player.get(Identity).faction == ident.faction:
+            for other in candidates:
+                if other is mob or other.get(Identity).faction == ident.faction:
                     continue
-                ppos = player.get(Position)
-                if max(abs(ppos.x - pos.x), abs(ppos.y - pos.y)) > state.vision:
+                opos = other.get(Position)
+                if max(abs(opos.x - pos.x), abs(opos.y - pos.y)) > state.vision:
                     continue  # 视野外不索敌
-                dist = (ppos.x - pos.x) ** 2 + (ppos.y - pos.y) ** 2
+                dist = (opos.x - pos.x) ** 2 + (opos.y - pos.y) ** 2
                 if dist < best_dist:
-                    best, best_dist = player, dist
+                    best, best_dist = other, dist
             state.target_id = best.id if best is not None else None
             if best is not None:
                 state.aggro = min(1000, state.aggro + 1)
+
+
+def _is_invisible(entity: Entity, tick: int) -> bool:
+    buff = entity.get(Invisible)
+    return buff is not None and buff.until_tick > tick
+
+
+class StatusSystem(System):
+    """状态跳伤：施毒的每一跳都走 ``CombatResolver``（因此过护盾、能致死）。
+
+    为什么单独一个系统而不是塞进 ``RegenSystem``：
+    回血是"每个实体都跑"，跳毒是"只有中毒者跑"，且必须按各自 ``interval``
+    错开——混在一起会让"回血 1 点 / 跳毒 3 点"的净变化变得不可预测。
+    """
+
+    priority = 13
+
+    def __init__(self, ctx: CombatContext) -> None:
+        self.ctx = ctx
+        self.resolver = CombatResolver(ctx)
+
+    def update(self, world: World, dt: float) -> None:
+        tick = int(world.get_data(KEY_TICK, 0))
+        if tick == 0:
+            return
+        for entity in world.each(Poison, Vitals):
+            poison = entity.get(Poison)
+            if poison.remaining_ticks <= 0:
+                continue
+            if tick % max(1, poison.interval):
+                continue
+            if not entity.get(Vitals).alive:
+                poison.remaining_ticks = 0
+                continue
+            self.ctx.tick = tick
+            self.resolver.tick_poison(entity)
 
 
 class AttackSystem(System):
@@ -341,12 +387,26 @@ class DeathRewardSystem(System):
         for event in events:
             killer = world.get_entity(event.get("attacker"))
             victim = world.get_entity(event.get("defender"))
-            if killer is None or victim is None:
+            if victim is None:
                 continue
             ident = victim.get(Identity)
             species = ident.species if ident is not None else ""
             spec = self.data.monsters["monsters"].get(species, None)
-            if ident is None or ident.kind != "monster" or spec is None:
+
+            # 召唤物击杀：奖励记到主人头上（随从没背包没钱包，记它身上等于吞掉落）
+            if killer is not None:
+                owner_ref = killer.get(SummonOwner)
+                if owner_ref is not None and owner_ref.owner_id is not None:
+                    owner = world.get_entity(owner_ref.owner_id)
+                    if owner is not None:
+                        killer = owner
+
+            # 召唤物尸体：没有怪表条目、也不发奖励，但必须清出场，否则越积越多
+            if ident is not None and ident.kind == "summon":
+                world.remove_entity(victim.id)
+                continue
+
+            if killer is None or ident is None or ident.kind != "monster" or spec is None:
                 continue
 
             # 1) 经验

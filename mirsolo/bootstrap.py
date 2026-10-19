@@ -35,6 +35,7 @@ from mirsolo.actor.systems import (
     MovementSystem,
     RegenSystem,
     RespawnSystem,
+    StatusSystem,
 )
 from mirsolo.combat.resolver import CombatContext, CombatResolver
 from mirsolo.data.loader import GameData
@@ -152,6 +153,7 @@ def build_session(
     world.add_system(TickSystem())
     world.add_system(RegenSystem())
     world.add_system(CooldownSystem())
+    world.add_system(StatusSystem(ctx))
     world.add_system(MovementSystem())
     world.add_system(SkillSystem(game_data, ctx))
     world.add_system(MobChaseSystem())

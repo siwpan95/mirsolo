@@ -37,6 +37,9 @@ SLOTS = ("weapon", "armor", "helmet", "necklace", "bracelet", "ring", "candle")
 #: 允许的职业 id
 CLASSES = ("warrior", "mage", "taoist")
 
+#: 物品大类：装备 / 技能书（P1-S2 起；消耗品待 P2 药水批次）
+ITEM_KINDS = frozenset({"equip", "book"})
+
 #: 技能 kind 全集（数据面事实的唯一定义处；mirsolo/skills/engine.py 从这里导入）
 SKILL_KINDS = frozenset({
     "physical", "physical_aoe", "magic", "magic_aoe", "taoist",
@@ -160,11 +163,34 @@ class GameData:
                 errs.append(f"monsters.json[{mid}]: dc/ac 必须是 (下限, 上限)")
 
         for iid, spec in self.items["items"].items():
-            if spec.get("slot") not in SLOTS:
-                errs.append(f"items.json[{iid}]: 非法槽位 {spec.get('slot')!r}")
+            kind = spec.get("kind", "equip")
+            if kind not in ITEM_KINDS:
+                errs.append(f"items.json[{iid}]: 未知 kind {kind!r}")
+            if kind == "equip" and spec.get("slot") not in SLOTS:
+                errs.append(f"items.json[{iid}]: 装备槽位非法 {spec.get('slot')!r}")
+            if kind == "book":
+                teaches = spec.get("teaches")
+                if teaches not in self.skills["skills"]:
+                    errs.append(f"items.json[{iid}]: 技能书 teaches={teaches!r} 不在技能表")
+                if spec.get("slot") is not None:
+                    errs.append(f"items.json[{iid}]: 技能书不应有槽位 {spec.get('slot')!r}")
             for key in ("name", "weight", "durability", "level_req"):
                 if key not in spec:
                     errs.append(f"items.json[{iid}]: 缺字段 {key}")
+
+        # 技能 ↔ 技能书双向必须对得上（单向校验会放过"书指向不存在的技能"）
+        for sid, spec in self.skills["skills"].items():
+            book_id = spec.get("book")
+            if not book_id:
+                errs.append(f"skills.json[{sid}]: 缺 book（学习所需技能书）")
+                continue
+            book = self.items["items"].get(book_id)
+            if book is None:
+                errs.append(f"skills.json[{sid}]: 技能书 {book_id!r} 不在物品表")
+            elif book.get("teaches") != sid:
+                errs.append(
+                    f"技能书 {book_id!r} 教的是 {book.get('teaches')!r}，"
+                    f"但 skills.json[{sid}].book 指向它")
 
         for mid, table in self.drops["drops"].items():
             if "gold" not in table:

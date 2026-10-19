@@ -187,6 +187,59 @@ class Cooldowns(Component):
 
 
 @dataclass
+class SummonOwner(Component):
+    """召唤物归属：击杀奖励（经验/掉落）记到主人头上，而不是随从身上。
+
+    没有它，道士的骷髅打死怪会"掉落被吞掉"——随从没有背包和钱包，
+    奖励结算到它身上等于凭空消失。
+    """
+
+    owner_id: int | None = None
+
+
+@dataclass
+class Shield(Component):
+    """魔法盾：吸收伤害的护盾池（先扣盾、再扣血）。
+
+    只在 ``CombatResolver`` 里被消耗——与"唯一改血处"同源，
+    避免某个系统绕过结算直接改血。
+    """
+
+    current: int = 0
+    max: int = 0
+
+    def absorb(self, amount: int) -> tuple[int, int]:
+        """吸收 ``amount``，返回 ``(盾吃掉的量, 漏到血上的量)``。"""
+        if amount <= 0 or self.current <= 0:
+            return 0, amount
+        eaten = min(self.current, amount)
+        self.current -= eaten
+        return eaten, amount - eaten
+
+    def refresh(self, amount: int) -> None:
+        """重新结盾（取较大值，连续施法不叠加上限）。"""
+        self.max = max(self.max, int(amount))
+        self.current = max(self.current, int(amount))
+
+
+@dataclass
+class Poison(Component):
+    """施毒：持续伤害状态。同一实体只保留最强/最新的那份毒。"""
+
+    remaining_ticks: int = 0
+    damage_per_tick: int = 1
+    interval: int = 10  # 每 10 刻（1 秒）跳一次
+    source: int | None = None  # 施毒者实体 id（给死亡奖励归因）
+
+
+@dataclass
+class Invisible(Component):
+    """隐身：怪物在 ``until_tick`` 之前看不到该实体；主动出手即破。"""
+
+    until_tick: int = -1
+
+
+@dataclass
 class AiState(Component):
     """怪物 AI 的极小状态：目标实体 id + 仇恨值 + 上次攻击刻。
 

@@ -58,6 +58,17 @@ class TextAnchor:
     color: RGBA = (0.92, 0.92, 0.92, 1.0)
 
 
+@dataclass(frozen=True)
+class SkillSlot:
+    """技能栏一格：按键号 + 名称 + 是否就绪。"""
+
+    key: str
+    name: str
+    rect: Rect
+    ready: bool
+    proficiency: int = 1
+
+
 @dataclass
 class HudLayout:
     hp: Bar
@@ -65,6 +76,8 @@ class HudLayout:
     exp: Bar
     texts: list[TextAnchor] = field(default_factory=list)
     panels: dict[str, Rect] = field(default_factory=dict)
+    skills: list[SkillSlot] = field(default_factory=list)
+    """已学技能栏（最多 5 格，按技能 id 稳定排序，与学习顺序无关）。"""
 
 
 def clamp_ratio(value: float, maximum: float) -> float:
@@ -77,6 +90,9 @@ def clamp_ratio(value: float, maximum: float) -> float:
 HP_COLOR: RGBA = (0.80, 0.18, 0.20, 0.95)
 MP_COLOR: RGBA = (0.20, 0.42, 0.85, 0.95)
 EXP_COLOR: RGBA = (0.85, 0.72, 0.25, 0.95)
+
+#: 技能栏最多 5 格（键位 1..5）；顺序由调用方传入（窗口层按学习等级排）
+MAX_SKILL_SLOTS = 5
 
 
 def build_hud(
@@ -94,6 +110,10 @@ def build_hud(
     bar_width: float = 220.0,
     bar_height: float = 16.0,
     gap: float = 6.0,
+    known_skills: dict[str, int] | None = None,
+    skill_names: dict[str, str] | None = None,
+    cooldowns: dict[str, float] | None = None,
+    shield: tuple[int, int] = (0, 0),
 ) -> HudLayout:
     """按屏幕尺寸算 HUD 布局（左下角三条状态条 + 右上角统计）。
 
@@ -132,8 +152,37 @@ def build_hud(
         TextAnchor(f"背包 {bag.used}/{bag.capacity}", width - margin, height - margin - 50, 12),
     ]
 
+    # 护盾：只在有盾时出现，避免常驻一行无意义的 0/0
+    if shield[1] > 0:
+        texts.append(TextAnchor(f"盾 {shield[0]}/{shield[1]}",
+                                hp.frame.right + 10, hp.frame.y + 1 + 0, 11,
+                                (0.55, 0.85, 1.0, 1.0)))
+
     panels = {
         "status": Rect(margin - 4, margin - 4, bar_width + 8, 3 * bar_height + 2 * gap + 16),
         "stats": Rect(width - margin - 150, height - margin - 62, 150, 66),
     }
-    return HudLayout(hp=hp, mp=mp, exp=exp, texts=texts, panels=panels)
+
+    # 技能栏：屏幕底部居中一排（最多 5 格），键位 1..5 固定。
+    # 顺序由调用方决定（窗口层按"学习等级"排好再传进来）——这里只按插入序取前 5，
+    # 避免两处各排一遍导致按键与格子错位。
+    slots: list[SkillSlot] = []
+    if known_skills:
+        order = list(known_skills)[:MAX_SKILL_SLOTS]
+        slot_w, slot_h, slot_gap = 96.0, 26.0, 6.0
+        total = len(order) * slot_w + (len(order) - 1) * slot_gap
+        left = max(margin, (width - total) / 2)
+        cds = cooldowns or {}
+        for index, skill_id in enumerate(order):
+            rect = Rect(left + index * (slot_w + slot_gap), margin + 22.0, slot_w, slot_h)
+            name = (skill_names or {}).get(skill_id, skill_id)
+            slots.append(SkillSlot(
+                key=str(index + 1),
+                name=name,
+                rect=rect,
+                ready=cds.get(skill_id, 0.0) <= 0.0,
+                proficiency=int(known_skills[skill_id]),
+            ))
+        panels["skills"] = Rect(left - 4, margin + 18.0, total + 8, slot_h + 8)
+
+    return HudLayout(hp=hp, mp=mp, exp=exp, texts=texts, panels=panels, skills=slots)
