@@ -119,6 +119,22 @@ class Wallet(Component):
 
 
 @dataclass
+class Warehouse(Component):
+    """仓库：``item_id -> 数量``。与背包分开计容量，存取都受各自上限约束。"""
+
+    capacity: int = 80
+    items: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def used(self) -> int:
+        return len(self.items)
+
+    @property
+    def full(self) -> bool:
+        return self.used >= self.capacity
+
+
+@dataclass
 class Loadout(Component):
     """穿戴槽：``slot -> item_id``，未穿戴的槽不在字典里。"""
 
@@ -250,6 +266,9 @@ class AiState(Component):
         原版怪不会隔着半张地图盯上你。
     ``leash``
         脱战距离（与出生点的直线距离）。超过即放弃目标并回巢。
+    ``tier``
+        AI 档位：``passive`` 不主动索敌（挨打才还手）/ ``aggressive`` 常规 /
+        ``elite`` 教主（视野与脱战更大，靠数据表 ``ai`` 字段指定）。
     """
 
     target_id: int | None = None
@@ -258,3 +277,4 @@ class AiState(Component):
     home: tuple[float, float] = (0.0, 0.0)
     leash: float = 12.0  # 脱离距离（超过则回巢）
     vision: float = 10.0  # 索敌视野（切比雪夫格数）
+    tier: str = "aggressive"  # passive / aggressive / elite（来自 monsters.json 的 ai 字段）

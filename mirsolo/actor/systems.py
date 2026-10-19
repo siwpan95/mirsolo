@@ -39,6 +39,7 @@ from mirsolo.components import (
 )
 from mirsolo.determinism import Rng
 from mirsolo.items.drops import roll_drops
+from mirsolo.items.equipment import recompute
 from mirsolo.progression.exp import add_exp, apply_growth
 
 KEY_TICK = "tick"
@@ -260,6 +261,9 @@ class AiTargetSystem(System):
             if (pos.x - home_x) ** 2 + (pos.y - home_y) ** 2 > state.leash ** 2:
                 state.target_id = None
                 continue
+            # passive 怪不主动索敌：只有被打了（resolver 写入 target_id）才还手
+            if state.tier == "passive" and state.target_id is None:
+                continue
             best: Entity | None = None
             best_dist = float("inf")
             for other in candidates:
@@ -416,6 +420,8 @@ class DeathRewardSystem(System):
                 if result.levels_gained:
                     class_spec = self.data.classes["classes"][prog.class_id]
                     apply_growth(killer, class_spec)
+                    # 升级会覆盖面，装备加成必须跟着重算，否则升一级就把武器丢了
+                    recompute(killer, self.data)
                     world.set_data("last_level_up", {
                         "entity": killer.id,
                         "level": prog.level,
@@ -452,19 +458,34 @@ class DeathRewardSystem(System):
 
 
 class RespawnSystem(System):
-    """按地图刷新表补刷怪物（P0 简化：固定 tick 间隔、原地附近随机点）。"""
+    """按地图刷新表补刷怪物 —— **每个刷点用自己的 ``respawn_seconds``**。
+
+    之前是全局固定 30 秒一刀切，直接无视了地图表里逐怪给的间隔
+    （尸王 180 秒 / 稻草人 20 秒），数据与行为对不上。
+    现在按刷点记账：缺的怪要等"上次补刷 + 该刷点间隔"之后才补，
+    同一刷点一次最多补满缺口。
+    """
 
     priority = 90
 
-    def __init__(self, *, data, seed: int, tick_interval: int = 300) -> None:
+    #: 记账粒度（刻）：每 10 刻（1 秒）检查一次刷点，避免每帧遍历刷新表
+    CHECK_INTERVAL = 10
+
+    def __init__(self, *, data, seed: int, tick_dt: float = 0.1) -> None:
         self.data = data
         self.seed = seed
-        self.tick_interval = tick_interval
+        self.tick_dt = tick_dt
         self._serial = 0
+        #: (map_id, monster_id) -> 上次补刷的刻
+        self._last_spawn_tick: dict[tuple[str, str], int] = {}
+
+    def _interval_ticks(self, spawn: dict) -> int:
+        seconds = float(spawn.get("respawn_seconds", 30))
+        return max(1, int(round(seconds / max(1e-6, self.tick_dt))))
 
     def update(self, world: World, dt: float) -> None:
         tick = int(world.get_data(KEY_TICK, 0))
-        if tick == 0 or tick % self.tick_interval:
+        if tick == 0 or tick % self.CHECK_INTERVAL:
             return
         map_id = world.get_data("current_map")
         spec = self.data.maps["maps"].get(map_id or "")
@@ -485,8 +506,23 @@ class RespawnSystem(System):
             # 清掉没有走过死亡事件的尸体（例如测试里直接置零血），否则永远占着名额
             for entity_id in corpses:
                 world.remove_entity(entity_id)
+
             want = int(spawn.get("count", 0))
-            for _ in range(max(0, want - alive)):
+            key = (map_id, monster_id)
+            last = self._last_spawn_tick.get(key)
+            if last is None:
+                # 首次看到该刷点：计时从此刻开始（开局铺怪由 populate() 负责，
+                # 补刷不应该"一进图就把缺口全填满"）
+                self._last_spawn_tick[key] = tick
+                continue
+            if tick - last < self._interval_ticks(spawn):
+                continue  # 还没到该刷点的补刷时间
+            missing = max(0, want - alive)
+            if missing == 0:
+                self._last_spawn_tick[key] = tick  # 满员时也从现在重新计时
+                continue
+            self._last_spawn_tick[key] = tick
+            for _ in range(missing):
                 self._serial += 1
                 rng = Rng(self.seed, f"spawn:{map_id}:{monster_id}:{self._serial}")
                 x = rng.rand_int(0, int(spec["size"][0]) - 1)

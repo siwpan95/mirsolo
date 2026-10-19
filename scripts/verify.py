@@ -157,9 +157,52 @@ def gate_package_imports() -> tuple[bool, str]:
     return True, f"{len(modules)} 个模块可导入"
 
 
+def gate_map_bands() -> tuple[bool, str]:
+    """地图带必须**等级连续**且**传送图连通**。
+
+    这两件事都是"看表看不出来、进游戏才知道"的问题：
+    等级带断一档 → 玩家卡在练级断层；传送不连通 → 后段地图根本走不到。
+    """
+    from mirsolo.data.loader import GameData
+
+    data = GameData.load()
+    maps = data.maps["maps"]
+    # 1) 等级带连续：按起点排序后，后一张的起点不得高于前一张的终点 +1
+    bands = sorted(((spec["level_range"][0], spec["level_range"][1], mid)
+                    for mid, spec in maps.items()), key=lambda x: (x[0], x[1]))
+    gaps = []
+    for prev, cur in zip(bands, bands[1:]):
+        if cur[0] > prev[1] + 1:
+            gaps.append(f"{prev[2]}({prev[0]}-{prev[1]}) → {cur[2]}({cur[0]}-{cur[1]}) 断了")
+    if gaps:
+        return False, "; ".join(gaps)
+    if bands[0][0] > 1:
+        return False, f"最低等级带从 {bands[0][0]} 级起，1 级没有地图"
+    top = max(b[1] for b in bands)
+
+    # 2) 传送图**有向**连通：从最低等级那张图出发，只沿 portals[].to 走。
+    #    不能把"对方的出口"当成本图的入口——那会让"只有出口、没有入口"的
+    #    孤岛图也被判成连通（实测注入验证时正是这个漏洞）。
+    start = bands[0][2]
+    seen = {start}
+    queue = [start]
+    while queue:
+        cur = queue.pop()
+        for portal in maps[cur].get("portals", []):
+            nxt = portal.get("to")
+            if nxt in maps and nxt not in seen:
+                seen.add(nxt)
+                queue.append(nxt)
+    unreachable = sorted(set(maps) - seen)
+    if unreachable:
+        return False, f"按传送方向走不到的图：{unreachable}"
+    return True, f"{len(maps)} 张图，1-{top} 级连续且全连通"
+
+
 GATES = [
     ("data-integrity", "七张数据表的引用完整性（掉落/刷新/技能职业可解析）", gate_data_integrity),
     ("data-files", "data/ 下七张表齐全且是合法 JSON", gate_data_files),
+    ("map-bands", "地图等级带连续且传送图全连通", gate_map_bands),
     ("tests-registered", "run_tests.MODULES ↔ tests/test_*.py 双向一致", gate_tests_registered),
     ("readme-commands", "README 里的 python -m 目标都真实可导入", gate_readme_commands),
     ("readme-tree-real", "README 项目结构里的路径都真实存在", gate_tree_real),

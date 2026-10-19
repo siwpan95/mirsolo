@@ -161,7 +161,7 @@ def build_session(
     world.add_system(MobAttackSystem(game_data))
     world.add_system(AttackSystem(ctx))
     world.add_system(death_system)
-    world.add_system(RespawnSystem(data=game_data, seed=seed))
+    world.add_system(RespawnSystem(data=game_data, seed=seed, tick_dt=tick_dt))
 
     return GameSession(
         engine=engine,

@@ -1,76 +1,680 @@
 {
   "meta": {
     "version": "1.76-ref",
-    "note": "掉落以「组」为单位：每组独立 roll 一次组权重，命中后组内再 roll 一次条目权重。permille 为万分比权重（非概率）。gold 为 (下限, 上限)。",
+    "note": "每组独立 roll 组权重（万分比，非互斥）；组内按 permille 挑一条；gold 单独 roll 区间。P1 起怪也掉技能书（低概率），与原版「书靠打或买」一致。",
     "source": "docs/数据口径.md#drops"
   },
   "drops": {
     "ji": {
-      "gold": [1, 3],
+      "gold": [
+        1,
+        3
+      ],
       "groups": [
         {
           "permille": 2500,
-          "entries": [{ "item": "mujian", "permille": 10000, "count": [1, 1] }]
+          "entries": [
+            {
+              "item": "mujian",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         }
       ]
     },
     "daocaoren": {
-      "gold": [1, 5],
+      "gold": [
+        1,
+        5
+      ],
       "groups": [
         {
           "permille": 1800,
-          "entries": [{ "item": "buyi", "permille": 10000, "count": [1, 1] }]
+          "entries": [
+            {
+              "item": "buyi",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         },
         {
           "permille": 1200,
-          "entries": [{ "item": "pihelmet", "permille": 10000, "count": [1, 1] }]
+          "entries": [
+            {
+              "item": "pihelmet",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         }
       ]
     },
     "lu": {
-      "gold": [1, 4],
+      "gold": [
+        1,
+        4
+      ],
       "groups": [
         {
           "permille": 2000,
-          "entries": [{ "item": "buyi", "permille": 5000, "count": [1, 1] },
-                       { "item": "mujian", "permille": 5000, "count": [1, 1] }]
+          "entries": [
+            {
+              "item": "buyi",
+              "permille": 5000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "mujian",
+              "permille": 5000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         }
       ]
     },
     "kulou": {
-      "gold": [10, 40],
+      "gold": [
+        10,
+        40
+      ],
       "groups": [
         {
           "permille": 3500,
-          "entries": [{ "item": "wumujian", "permille": 4000, "count": [1, 1] },
-                       { "item": "qingtongkuijia", "permille": 3000, "count": [1, 1] },
-                       { "item": "pihelmet", "permille": 3000, "count": [1, 1] }]
+          "entries": [
+            {
+              "item": "wumujian",
+              "permille": 4000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "qingtongkuijia",
+              "permille": 3000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "pihelmet",
+              "permille": 3000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         }
       ]
     },
     "jiangshi": {
-      "gold": [20, 60],
+      "gold": [
+        20,
+        60
+      ],
       "groups": [
         {
           "permille": 4000,
-          "entries": [{ "item": "qingtongkuijia", "permille": 4000, "count": [1, 1] },
-                       { "item": "qingtongtoukui", "permille": 3500, "count": [1, 1] },
-                       { "item": "wumujian", "permille": 2500, "count": [1, 1] }]
+          "entries": [
+            {
+              "item": "qingtongkuijia",
+              "permille": 4000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "qingtongtoukui",
+              "permille": 3500,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "wumujian",
+              "permille": 2500,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         }
       ]
     },
     "shiwang": {
-      "gold": [80, 220],
+      "gold": [
+        80,
+        220
+      ],
       "groups": [
         {
           "permille": 6000,
-          "entries": [{ "item": "qingtongtoukui", "permille": 4000, "count": [1, 1] },
-                       { "item": "zhongxingkuijia", "permille": 3000, "count": [1, 1] },
-                       { "item": "zhanmadao", "permille": 3000, "count": [1, 1] }]
+          "entries": [
+            {
+              "item": "qingtongtoukui",
+              "permille": 4000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "zhongxingkuijia",
+              "permille": 3000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "zhanmadao",
+              "permille": 3000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         },
         {
           "permille": 1500,
-          "entries": [{ "item": "zhanmadao", "permille": 10000, "count": [1, 1] }]
+          "entries": [
+            {
+              "item": "zhanmadao",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "wugong": {
+      "gold": [
+        8,
+        20
+      ],
+      "groups": [
+        {
+          "permille": 2200,
+          "entries": [
+            {
+              "item": "buyi",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "pihelmet",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "qianchong": {
+      "gold": [
+        10,
+        24
+      ],
+      "groups": [
+        {
+          "permille": 2400,
+          "entries": [
+            {
+              "item": "buyi",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "pihelmet",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 300,
+          "entries": [
+            {
+              "item": "book_gongsha",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "bande": {
+      "gold": [
+        15,
+        35
+      ],
+      "groups": [
+        {
+          "permille": 2600,
+          "entries": [
+            {
+              "item": "wumujian",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "qingtongkuijia",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 300,
+          "entries": [
+            {
+              "item": "book_cisha",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "banzhanshi": {
+      "gold": [
+        20,
+        45
+      ],
+      "groups": [
+        {
+          "permille": 2600,
+          "entries": [
+            {
+              "item": "wumujian",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "qingtongkuijia",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 400,
+          "entries": [
+            {
+              "item": "book_huozhu",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "woma_zhanshi": {
+      "gold": [
+        30,
+        70
+      ],
+      "groups": [
+        {
+          "permille": 2800,
+          "entries": [
+            {
+              "item": "zhanmadao",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "zhongxingkuijia",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 400,
+          "entries": [
+            {
+              "item": "book_leidian",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "woma_weishi": {
+      "gold": [
+        40,
+        90
+      ],
+      "groups": [
+        {
+          "permille": 2800,
+          "entries": [
+            {
+              "item": "zhanmadao",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "zhongxingkuijia",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 500,
+          "entries": [
+            {
+              "item": "book_zhiyu",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "woma_jiaozhu": {
+      "gold": [
+        300,
+        600
+      ],
+      "groups": [
+        {
+          "permille": 6000,
+          "entries": [
+            {
+              "item": "zhanmadao",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "zhongxingkuijia",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "qingtongtoukui",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 1200,
+          "entries": [
+            {
+              "item": "book_liehuo",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "heiming_zhanshi": {
+      "gold": [
+        50,
+        110
+      ],
+      "groups": [
+        {
+          "permille": 3000,
+          "entries": [
+            {
+              "item": "zhanmadao",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "zhongxingkuijia",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 500,
+          "entries": [
+            {
+              "item": "book_linghunhuofu",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "emo_gongjianshou": {
+      "gold": [
+        60,
+        130
+      ],
+      "groups": [
+        {
+          "permille": 3000,
+          "entries": [
+            {
+              "item": "zhanmadao",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "zhongxingkuijia",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 500,
+          "entries": [
+            {
+              "item": "book_banyue",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "zumma_weishi": {
+      "gold": [
+        70,
+        150
+      ],
+      "groups": [
+        {
+          "permille": 3200,
+          "entries": [
+            {
+              "item": "zhanmadao",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "zhongxingkuijia",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 600,
+          "entries": [
+            {
+              "item": "book_huoqiang",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "zumma_jiaozhu": {
+      "gold": [
+        500,
+        900
+      ],
+      "groups": [
+        {
+          "permille": 7000,
+          "entries": [
+            {
+              "item": "zhanmadao",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "zhongxingkuijia",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "qingtongtoukui",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 1500,
+          "entries": [
+            {
+              "item": "book_bingpaoxiao",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         }
       ]
     }

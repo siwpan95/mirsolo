@@ -1,40 +1,364 @@
 {
   "meta": {
     "version": "1.76-ref",
-    "note": "P0 两张图：比奇省外围（野外，1-10 级）+ 比奇矿洞一层（地牢，11-20 级）。kind=field 用 fBm 地形生成，dungeon 用连通性保证的地牢生成；spawns 是刷新表（每张图独立 roll 位置）。",
+    "note": "P1 八张图等级带连续：比奇省外围 1-10 → 矿洞 11-20 → 蜈蚣洞 20-26 → 半兽古墓 26-33 → 沃玛寺庙 33-40 → 石墓阵 40-44 → 封魔谷 44-47 → 祖玛寺庙 47-50。respawn_seconds 是该刷点自己的补刷间隔（教主 10-15 分钟）。",
     "source": "docs/数据口径.md#maps"
   },
   "maps": {
     "biqi_field": {
       "name": "比奇省外围",
       "kind": "field",
-      "level_range": [1, 10],
-      "size": [64, 64],
+      "level_range": [
+        1,
+        10
+      ],
+      "size": [
+        64,
+        64
+      ],
       "seed_role": "field",
       "safe_zone": true,
       "spawns": [
-        { "monster": "ji", "count": 16, "respawn_seconds": 25 },
-        { "monster": "lu", "count": 10, "respawn_seconds": 30 },
-        { "monster": "daocaoren", "count": 8, "respawn_seconds": 20 }
+        {
+          "monster": "ji",
+          "count": 16,
+          "respawn_seconds": 25
+        },
+        {
+          "monster": "lu",
+          "count": 10,
+          "respawn_seconds": 30
+        },
+        {
+          "monster": "daocaoren",
+          "count": 8,
+          "respawn_seconds": 20
+        }
       ],
       "portals": [
-        { "to": "biqi_mine_1", "at": [60, 6], "name": "矿洞入口" }
+        {
+          "to": "biqi_mine_1",
+          "at": [
+            60,
+            6
+          ],
+          "name": "矿洞入口"
+        }
       ]
     },
     "biqi_mine_1": {
       "name": "比奇矿洞一层",
       "kind": "dungeon",
-      "level_range": [11, 20],
-      "size": [64, 64],
+      "level_range": [
+        11,
+        20
+      ],
+      "size": [
+        64,
+        64
+      ],
       "seed_role": "dungeon",
       "safe_zone": false,
       "spawns": [
-        { "monster": "kulou", "count": 12, "respawn_seconds": 35 },
-        { "monster": "jiangshi", "count": 14, "respawn_seconds": 40 },
-        { "monster": "shiwang", "count": 1, "respawn_seconds": 180 }
+        {
+          "monster": "kulou",
+          "count": 12,
+          "respawn_seconds": 35
+        },
+        {
+          "monster": "jiangshi",
+          "count": 14,
+          "respawn_seconds": 40
+        },
+        {
+          "monster": "shiwang",
+          "count": 1,
+          "respawn_seconds": 180
+        }
       ],
       "portals": [
-        { "to": "biqi_field", "at": [4, 4], "name": "出口" }
+        {
+          "to": "biqi_field",
+          "at": [
+            4,
+            4
+          ],
+          "name": "出口"
+        },
+        {
+          "to": "wugong_cave_1",
+          "at": [
+            60,
+            60
+          ],
+          "name": "蜈蚣洞"
+        }
+      ]
+    },
+    "wugong_cave_1": {
+      "name": "蜈蚣洞一层",
+      "kind": "dungeon",
+      "level_range": [
+        20,
+        26
+      ],
+      "size": [
+        64,
+        64
+      ],
+      "seed_role": "dungeon",
+      "safe_zone": false,
+      "spawns": [
+        {
+          "monster": "wugong",
+          "count": 14,
+          "respawn_seconds": 40
+        },
+        {
+          "monster": "qianchong",
+          "count": 10,
+          "respawn_seconds": 45
+        }
+      ],
+      "portals": [
+        {
+          "to": "biqi_mine_1",
+          "at": [
+            4,
+            4
+          ],
+          "name": "出口"
+        },
+        {
+          "to": "orc_tomb_1",
+          "at": [
+            60,
+            60
+          ],
+          "name": "古墓入口"
+        }
+      ]
+    },
+    "orc_tomb_1": {
+      "name": "半兽人古墓",
+      "kind": "dungeon",
+      "level_range": [
+        26,
+        33
+      ],
+      "size": [
+        64,
+        64
+      ],
+      "seed_role": "dungeon",
+      "safe_zone": false,
+      "spawns": [
+        {
+          "monster": "bande",
+          "count": 12,
+          "respawn_seconds": 50
+        },
+        {
+          "monster": "banzhanshi",
+          "count": 8,
+          "respawn_seconds": 60
+        },
+        {
+          "monster": "shiwang",
+          "count": 1,
+          "respawn_seconds": 240
+        }
+      ],
+      "portals": [
+        {
+          "to": "wugong_cave_1",
+          "at": [
+            4,
+            4
+          ],
+          "name": "出口"
+        },
+        {
+          "to": "woma_temple",
+          "at": [
+            60,
+            60
+          ],
+          "name": "寺庙入口"
+        }
+      ]
+    },
+    "woma_temple": {
+      "name": "沃玛寺庙",
+      "kind": "dungeon",
+      "level_range": [
+        33,
+        40
+      ],
+      "size": [
+        64,
+        64
+      ],
+      "seed_role": "dungeon",
+      "safe_zone": false,
+      "spawns": [
+        {
+          "monster": "woma_zhanshi",
+          "count": 12,
+          "respawn_seconds": 60
+        },
+        {
+          "monster": "woma_weishi",
+          "count": 8,
+          "respawn_seconds": 75
+        },
+        {
+          "monster": "woma_jiaozhu",
+          "count": 1,
+          "respawn_seconds": 600
+        }
+      ],
+      "portals": [
+        {
+          "to": "orc_tomb_1",
+          "at": [
+            4,
+            4
+          ],
+          "name": "出口"
+        },
+        {
+          "to": "stone_tomb",
+          "at": [
+            60,
+            60
+          ],
+          "name": "石墓入口"
+        }
+      ]
+    },
+    "stone_tomb": {
+      "name": "石墓阵",
+      "kind": "dungeon",
+      "level_range": [
+        40,
+        44
+      ],
+      "size": [
+        64,
+        64
+      ],
+      "seed_role": "dungeon",
+      "safe_zone": false,
+      "spawns": [
+        {
+          "monster": "heiming_zhanshi",
+          "count": 12,
+          "respawn_seconds": 65
+        },
+        {
+          "monster": "woma_weishi",
+          "count": 6,
+          "respawn_seconds": 80
+        }
+      ],
+      "portals": [
+        {
+          "to": "woma_temple",
+          "at": [
+            4,
+            4
+          ],
+          "name": "出口"
+        },
+        {
+          "to": "fengmo_valley",
+          "at": [
+            60,
+            60
+          ],
+          "name": "封魔谷"
+        }
+      ]
+    },
+    "fengmo_valley": {
+      "name": "封魔谷",
+      "kind": "field",
+      "level_range": [
+        44,
+        47
+      ],
+      "size": [
+        64,
+        64
+      ],
+      "seed_role": "field",
+      "safe_zone": false,
+      "spawns": [
+        {
+          "monster": "emo_gongjianshou",
+          "count": 14,
+          "respawn_seconds": 70
+        },
+        {
+          "monster": "heiming_zhanshi",
+          "count": 8,
+          "respawn_seconds": 70
+        }
+      ],
+      "portals": [
+        {
+          "to": "stone_tomb",
+          "at": [
+            4,
+            4
+          ],
+          "name": "出口"
+        },
+        {
+          "to": "zuma_temple",
+          "at": [
+            60,
+            60
+          ],
+          "name": "祖玛入口"
+        }
+      ]
+    },
+    "zuma_temple": {
+      "name": "祖玛寺庙",
+      "kind": "dungeon",
+      "level_range": [
+        47,
+        50
+      ],
+      "size": [
+        64,
+        64
+      ],
+      "seed_role": "dungeon",
+      "safe_zone": false,
+      "spawns": [
+        {
+          "monster": "zumma_weishi",
+          "count": 12,
+          "respawn_seconds": 80
+        },
+        {
+          "monster": "zumma_jiaozhu",
+          "count": 1,
+          "respawn_seconds": 900
+        }
+      ],
+      "portals": [
+        {
+          "to": "fengmo_valley",
+          "at": [
+            4,
+            4
+          ],
+          "name": "出口"
+        }
       ]
     }
   }

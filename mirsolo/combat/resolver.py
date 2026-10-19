@@ -16,7 +16,15 @@ from dataclasses import dataclass
 from allin_engine import Entity, EventBus, World
 
 from mirsolo.combat import formulas
-from mirsolo.components import Attributes, Identity, Invisible, Poison, Shield, Vitals
+from mirsolo.components import (
+    AiState,
+    Attributes,
+    Identity,
+    Invisible,
+    Poison,
+    Shield,
+    Vitals,
+)
 from mirsolo.determinism import Rng
 
 EVT_HIT = "combat:hit"
@@ -71,6 +79,11 @@ class CombatResolver:
         if shield is not None:
             eaten, amount = shield.absorb(amount)
         dealt = vitals.take(amount)
+        # 挨打即锁定攻击者：passive 怪靠这条路还手，elite 也能被远程激怒
+        if source is not None:
+            ai = defender.get(AiState)
+            if ai is not None:
+                ai.target_id = source.id
         if self.ctx.bus is not None:
             self.ctx.bus.emit(
                 EVT_HIT,

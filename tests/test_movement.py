@@ -221,6 +221,46 @@ def test_chase_then_attack_end_to_end():
         session.shutdown()
 
 
+@case
+def test_ai_tiers_change_vision_and_leash():
+    """AI 档位来自数据表的 ``ai`` 字段：教主视野/脱战更大，被动怪视野小。"""
+    session, player, (px, py) = _session()
+    try:
+        boss = spawn_monster(session.world, DATA, "woma_jiaozhu", x=px + 30, y=py)
+        state = boss.get(AiState)
+        assert state.tier == "elite"
+        assert state.vision == 16.0, state.vision            # elite 档位
+        assert abs(state.leash - 12.0 * 1.6) < 1e-9, state.leash
+
+        deer = spawn_monster(session.world, DATA, "lu", x=px + 30, y=py + 5)
+        assert deer.get(AiState).tier == "passive"
+        assert deer.get(AiState).vision == 4.0
+    finally:
+        session.shutdown()
+
+
+@case
+def test_passive_monster_does_not_aggro_but_retaliates():
+    """被动怪（鹿）：站在旁边不动它，它不打你；打它一下，它才还手。"""
+    session, player, (px, py) = _session()
+    try:
+        deer = spawn_monster(session.world, DATA, "lu", x=px + 1, y=py)
+        session.step(20)
+        assert deer.get(AiState).target_id is None, "被动怪主动锁人了"
+        hits: list[dict] = []
+        session.bus.subscribe("combat:hit",
+                              lambda p: hits.append(p) if p.get("attacker") == deer.id else None)
+        session.step(20)
+        assert hits == [], f"被动怪主动攻击了：{hits}"
+
+        # 玩家还手 → 鹿进入仇恨（挨打即锁定攻击者）
+        session.queue_attack(player, deer)
+        session.step(2)
+        assert deer.get(AiState).target_id == player.id, "挨打后没有还手目标"
+    finally:
+        session.shutdown()
+
+
 def run() -> tuple[int, int]:
     passed = failed = 0
     for fn in CASES:

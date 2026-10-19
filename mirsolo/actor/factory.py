@@ -21,9 +21,20 @@ from mirsolo.components import (
     Skills,
     Vitals,
     Wallet,
+    Warehouse,
 )
 from mirsolo.data.loader import GameData
 from mirsolo.progression.exp import apply_growth
+
+#: AI 档位参数（``monsters.json`` 的 ``ai`` 字段选用；单项可用表里同名字段覆盖）
+#: ``vision`` 索敌视野（切比雪夫格），``leash_mult`` 脱战距离倍率。
+AI_TIERS: dict[str, dict[str, float]] = {
+    "passive": {"vision": 4.0, "leash_mult": 0.5},
+    "aggressive": {"vision": 10.0, "leash_mult": 1.0},
+    "elite": {"vision": 16.0, "leash_mult": 1.6},
+}
+DEFAULT_TIER = "aggressive"
+BASE_LEASH = 12.0
 
 
 def spawn_player(
@@ -50,6 +61,7 @@ def spawn_player(
     entity.add(Body())
     entity.add(Wallet())
     entity.add(Bag())
+    entity.add(Warehouse())
     entity.add(Loadout())
     entity.add(Skills())
     entity.add(Cooldowns())
@@ -75,6 +87,10 @@ def spawn_monster(
     if spec is None:
         raise KeyError(f"未知怪物 {monster_id!r}")
 
+    tier = spec.get("ai", DEFAULT_TIER)
+    if tier not in AI_TIERS:
+        tier = DEFAULT_TIER  # 数据写错档位就退回常规，不让造怪直接崩
+
     unique_eid = eid or f"{monster_id}#{world.entity_count() + 1}"
     entity = world.create_entity(unique_eid)
     entity.add(Identity(name=spec["name"], kind="monster", faction=1, species=monster_id))
@@ -90,8 +106,9 @@ def spawn_monster(
     ))
     entity.add(AiState(
         home=(x, y),
-        leash=float(spec.get("leash", 12.0)),
-        vision=float(spec.get("vision", 10.0)),
+        leash=float(spec.get("leash", BASE_LEASH)) * AI_TIERS[tier]["leash_mult"],
+        vision=float(spec.get("vision", AI_TIERS[tier]["vision"])),
+        tier=tier,
     ))
     entity.add(Cooldowns())
     return entity

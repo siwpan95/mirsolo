@@ -133,18 +133,51 @@ def test_same_seed_same_world_history():
     assert first == second, "同种子两次推演的奖励流水不一致"
 
 
+def _alive_monsters(session) -> int:
+    """存活怪物数（召唤物不算：它 kind=summon，不占刷新名额）。"""
+    return sum(1 for e in session.world.each(Identity, Vitals)
+               if e.get(Identity).kind == "monster" and e.get(Vitals).alive)
+
+
 @case
 def test_respawn_refills_after_interval():
-    """把所有怪清空后，到刷新刻（300）必须补回刷新表的数量。"""
+    """补刷间隔**按刷点自己的 respawn_seconds**（不是全局 30 秒一刀切）。
+
+    比奇省外围：稻草人 20s / 鸡 25s / 鹿 30s → 200/250/300 刻。
+    首个检查刻（10）起算：稻草人 210、鸡 260、鹿 310 才补。
+    之前是固定 300 刻全体补刷，直接无视了表里的间隔。
+    """
     session = build_session(data=DATA, seed=3)
     try:
         populate(session)
         for mob in list(session.world.each(Vitals)):
             mob.get(Vitals).hp = 0
-        session.step(300)
-        alive = [e for e in session.world.each(Identity, Vitals)
-                 if e.get(Identity).kind == "monster" and e.get(Vitals).alive]
-        assert len(alive) == 34, f"刷新后只有 {len(alive)} 只活怪"
+        session.step(200)   # 还没到任何刷点
+        assert _alive_monsters(session) == 0, "补刷来得太早"
+        session.step(20)    # 220 ≥ 210：稻草人 8 只
+        assert _alive_monsters(session) == 8
+        session.step(50)    # 270 ≥ 260：鸡 16 只
+        assert _alive_monsters(session) == 24
+        session.step(50)    # 320 ≥ 310：鹿 10 只
+        assert _alive_monsters(session) == 34
+    finally:
+        session.shutdown()
+
+
+@case
+def test_boss_respawn_is_much_slower():
+    """沃玛教主 600 秒才补刷——教主不能像小怪一样秒回。"""
+    session = build_session(data=DATA, seed=3, map_id="woma_temple")
+    try:
+        populate(session)
+        bosses = [e for e in session.world.each(Identity, Vitals)
+                  if e.get(Identity).species == "woma_jiaozhu"]
+        assert len(bosses) == 1, len(bosses)
+        bosses[0].get(Vitals).hp = 0
+        session.step(1200)  # 120 秒：小怪会补，教主不会
+        bosses = [e for e in session.world.each(Identity, Vitals)
+                  if e.get(Identity).species == "woma_jiaozhu"]
+        assert bosses == [], "教主 120 秒就复活了，间隔没生效"
     finally:
         session.shutdown()
 

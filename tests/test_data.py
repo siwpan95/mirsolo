@@ -37,6 +37,47 @@ def test_seven_tables_are_present():
 
 
 @case
+def test_p1_map_bands_cover_1_to_50():
+    """八张图的等级带必须首尾相接覆盖 1-50（练级不能断档）。"""
+    bands = sorted((s["level_range"][0], s["level_range"][1], mid)
+                   for mid, s in DATA.maps["maps"].items())
+    assert bands[0][0] == 1, bands[0]
+    assert bands[-1][1] == 50, bands[-1]
+    for prev, cur in zip(bands, bands[1:]):
+        assert cur[0] <= prev[1] + 1, f"{prev[2]}→{cur[2]} 等级断档"
+
+
+@case
+def test_every_monster_has_drops_and_spawn_somewhere():
+    """每只怪都要有掉落表、并且至少在某张图刷出来（否则是死数据）。"""
+    spawned = {s["monster"] for spec in DATA.maps["maps"].values()
+               for s in spec.get("spawns", [])}
+    for mid in DATA.monsters["monsters"]:
+        assert mid in DATA.drops["drops"], f"{mid} 没有掉落表"
+        assert mid in spawned, f"{mid} 没有在任何地图刷新（写了等于没写）"
+
+
+@case
+def test_bosses_are_elite_and_slow_respawn():
+    """教主/精英必须走 elite 档位，且补刷间隔与小怪分层（数据与行为同源）。"""
+    monsters = DATA.monsters["monsters"]
+    bosses = {mid for mid, s in monsters.items() if s.get("ai") == "elite"}
+    assert {"woma_jiaozhu", "zumma_jiaozhu"} <= bosses, sorted(bosses)
+    for map_id, spec in DATA.maps["maps"].items():
+        for spawn in spec.get("spawns", []):
+            mid = spawn["monster"]
+            seconds = spawn["respawn_seconds"]
+            if mid in ("woma_jiaozhu", "zumma_jiaozhu"):
+                assert spawn["count"] == 1, f"{map_id} 的教主刷了 {spawn['count']} 只"
+                assert seconds >= 300, (map_id, mid, seconds)
+            elif monsters[mid].get("ai") == "elite":      # 尸王这类精英
+                assert spawn["count"] == 1, f"{map_id} 的精英刷了 {spawn['count']} 只"
+                assert seconds >= 180, (map_id, mid, seconds)
+            else:
+                assert seconds <= 120, (map_id, mid, seconds)
+
+
+@case
 def test_exp_covers_1_to_50():
     assert DATA.max_level() == 50
     for level in range(1, 51):
