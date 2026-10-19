@@ -26,6 +26,7 @@ from pyglet.text import Label
 from mirsolo.bootstrap import GameSession, build_session, populate
 from mirsolo.components import (
     Bag,
+    Codex,
     Cooldowns,
     Identity,
     Position,
@@ -35,6 +36,8 @@ from mirsolo.components import (
     Vitals,
     Wallet,
 )
+from mirsolo.actor import codex, mercenary
+from mirsolo.economy import auction
 from mirsolo.economy.shop import TradeError, buy, deposit, sell, withdraw
 from mirsolo.items.equipment import EquipError, equip, unequip
 from mirsolo.items.rings import RingError, try_travel
@@ -76,6 +79,9 @@ RING_KEY = pyglet.window.key.T
 #: 面板开关键 → 面板名。放在这里而不是散在 if 里：加面板只改这张表
 PANEL_KEYS = {
     pyglet.window.key.C: "character",
+    pyglet.window.key.M: "mercenary",
+    pyglet.window.key.J: "codex",
+    pyglet.window.key.N: "auction",
     pyglet.window.key.B: "shop",
     pyglet.window.key.V: "warehouse",
 }
@@ -114,6 +120,29 @@ TRADE_ERRORS = {
 }
 
 
+AUCTION_ERRORS = {
+    "unknown_item": "未知物品",
+    "not_listable": "这个不能寄卖",
+    "bad_price": "要价超出允许范围",
+    "no_listing": "没有这张挂单",
+    "not_enough": "数量不足",
+    "bag_full": "背包已满",
+    "bad_count": "数量不对",
+    "missing_components": "角色数据异常",
+}
+
+
+#: 佣兵拒绝码 → 人话。码本身给测试断言用，不上屏
+MERC_ERRORS = {
+    "unknown_merc": "没有这种佣兵",
+    "level_too_low": "等级不够",
+    "no_gold": "金币不够",
+    "squad_full": "随从已满",
+    "kind_full": "这种已带满",
+    "missing_components": "角色数据异常",
+}
+
+
 class MirsoloWindow(pyglet.window.Window):
     """主窗口：把会话、相机、渲染器、HUD 串起来。"""
 
@@ -143,6 +172,8 @@ class MirsoloWindow(pyglet.window.Window):
             bus.subscribe(EVT_MAP_CHANGED, self._on_map_changed)
             bus.subscribe(EVT_SIEGE_WON, self._on_siege_won)
             bus.subscribe(EVT_SIEGE_LOST, self._on_siege_lost)
+            bus.subscribe(mercenary.EVT_DISMISS, self._on_merc_dismiss)
+            bus.subscribe(codex.EVT_UNLOCK, self._on_codex_unlock)
 
         player = session.world.get_entity("player")
         if player is not None:
@@ -178,6 +209,18 @@ class MirsoloWindow(pyglet.window.Window):
 
     def _on_siege_lost(self, payload: dict) -> None:
         self._on_notice(f"{payload.get('name', '攻城')} 失败——守军重新布防")
+
+    def _on_merc_dismiss(self, payload: dict) -> None:
+        """佣兵到期离队。必须**说一句**，否则玩家只会看到一个人凭空消失。"""
+        self._say(f"{payload.get('name', '佣兵')} 到期离队")
+
+    def _on_codex_unlock(self, payload: dict) -> None:
+        """图鉴首次解锁。带进度与奖励经验，让人知道这一刀额外赚了什么。"""
+        name = payload.get("name", payload.get("species", "?"))
+        exp = int(payload.get("exp", 0))
+        total = int(payload.get("total", 0))
+        got = int(payload.get("unlocked", 0))
+        self._say(f"图鉴解锁 {name} {got}/{total}　经验 +{exp}")
 
     def _on_notice(self, text: str) -> None:
         """重要提示（胜负这类）：比普通浮字停得久一些，免得一眨眼就没了。"""
@@ -323,14 +366,32 @@ class MirsoloWindow(pyglet.window.Window):
             elif row.action == "withdraw":
                 withdraw(player, data, row.item)
                 self._say(f"取出 {row.text}")
+            elif row.action == "list":
+                ask = auction.ask_for_tier(data, row.item, auction.ask_tier(player))
+                got = auction.list_item(player, data, row.item, ask,
+                                       tick=self.session.tick)
+                self._say(f"寄卖 {row.text}　要价 {got['ask']} 金")
+            elif row.action == "cancel":
+                got = auction.cancel_listing(player, data, int(row.item))
+                self._say(f"撤单 {got['item']} ×{got['count']}")
+            elif row.action == "cycle_tier":
+                self._say(f"报价档：{auction.cycle_ask_tier(player)}")
+            elif row.action == "hire":
+                got = mercenary.hire(self.session.world, data, player, row.item,
+                                     tick=self.session.tick)
+                self._say(f"雇佣 {got['name']} −{got['paid']} 金")
             else:  # "none"：不可操作的条目（技能书等），点了给句解释
                 self._say(f"{row.text}：这个不能直接使用")
         except EquipError as exc:
             self._say(f"{row.text}：{EQUIP_ERRORS.get(exc.code, exc.code)}")
         except TradeError as exc:
             self._say(f"{row.text}：{TRADE_ERRORS.get(exc.code, exc.code)}")
+        except auction.AuctionError as exc:
+            self._say(f"{row.text}：{AUCTION_ERRORS.get(exc.code, exc.code)}")
+        except mercenary.MercenaryError as exc:
+            self._say(f"{row.text}：{MERC_ERRORS.get(exc.code, exc.code)}")
 
-    # ── 特戒（T 键） ────────────────────────────────
+# ── 特戒（T 键） ────────────────────────────────
 
     def _use_ring(self) -> None:
         """传送戒指：规则全在 ``items.rings.try_travel``，这里只翻译拒绝码。
@@ -567,7 +628,7 @@ class MirsoloWindow(pyglet.window.Window):
                 color=(255, 110, 90, 255) if banner.urgent else (200, 206, 216, 255)))
 
         self._hud_labels.append(Label(
-            "WASD/方向键移动　空格攻击　1-5 技能　C 角色　B 商店　V 仓库　滚轮缩放　ESC 退出",
+            "WASD/方向键移动　空格攻击　1-5 技能　C 角色　M 佣兵　J 图鉴　N 拍卖行　B 商店　V 仓库　滚轮缩放　ESC 退出",
             x=self.width / 2, y=8, font_size=11, font_name=FONT,
             anchor_x="center", color=(170, 176, 186, 255)))
 
@@ -595,7 +656,8 @@ class MirsoloWindow(pyglet.window.Window):
             return
         panel = build_panel(self.panel, player=player, data=self.session.data,
                             width=self.width, height=self.height,
-                            scroll=self.panel_scroll, tick=self.session.tick)
+                            scroll=self.panel_scroll, tick=self.session.tick,
+                            world=self.session.world)
         self._panel = panel
         self.panel_scroll = min(self.panel_scroll, panel.scroll_max)
 
@@ -701,13 +763,30 @@ def best_gear(data, class_id: str, level: int) -> list[str]:
     return [item_id for _, item_id in sorted(best.values(), key=lambda pair: pair[1])]
 
 
-def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
-                      learn_all: bool = False, gear: bool = False) -> None:
-    """验收辅助：提等级 / 发书学技能 / 发一套装备穿上。
+def data_items(data) -> list[str]:
+    """可寄卖物品 id（验收用：给拍卖行/商店面板的背包栏塞几行真实数据）。"""
+    return [item_id for item_id, spec in sorted(data.items["items"].items())
+            if spec.get("kind", "equip") in ("equip", "book")]
 
-    刻意**复用游戏内路径**（``apply_growth`` + ``learn`` + ``equip`` + 真发
-    技能书），而不是直接往 ``Skills.known`` / ``Loadout.slots`` 里塞——
+
+def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
+                      learn_all: bool = False, gear: bool = False,
+                      gold: int = 0, mercs: tuple[str, ...] = (),
+                      codex_kills: int = 0, bag: bool = False) -> None:
+    """验收辅助：提等级 / 发金币 / 发一套装备 / 雇佣兵 / 记图鉴。
+
+    刻意**复用游戏内路径**（``apply_growth`` + ``learn`` + ``equip`` + ``hire`` +
+    真发技能书），而不是直接往 ``Skills.known`` / ``Loadout.slots`` 里塞——
     否则验收版本与真实成长会悄悄分叉。
+
+    两个例外都只碰"显示用"的账本，且写在明处：
+
+    * ``gold``——拍卖行/佣兵的价格是数据表的数，验收时给一笔钱只是为了
+      让"买得起"的那几行显现出来，不给钱截图里全是灰行，看不出版式；
+    * ``codex_kills``——只往 ``Codex.kills`` 里记账、**不发首杀奖励**，
+      纯粹为了让图鉴截图里同时出现"已解锁"与"未解锁"两种行；
+    * ``bag``——往背包塞几件可寄卖的装备（**不穿**）：``gear`` 发的装备
+      当场穿掉了，拍卖行/商店面板的截图里背包是空的，看不出版式。
     """
     player = session.world.get_entity("player")
     if player is None:
@@ -717,6 +796,8 @@ def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
         prog.level = min(50, level)
         prog.exp = 0
         apply_growth(player, session.data.classes["classes"][class_id])
+    if gold:
+        player.get(Wallet).gold = int(gold)
     if gear:
         for item_id in best_gear(session.data, class_id, prog.level):
             player.get(Bag).add(item_id, 1)
@@ -724,6 +805,19 @@ def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
                 equip(player, session.data, item_id)
             except EquipError:
                 continue  # 负重不够就跳过，别让验收流程崩掉
+    if bag:
+        for item_id in sorted(data_items(session.data))[:4]:
+            player.get(Bag).add(item_id, 1)
+    for merc_id in mercs:
+        try:
+            mercenary.hire(session.world, session.data, player, merc_id, tick=0)
+        except mercenary.MercenaryError:
+            continue  # 门槛/钱/名额不满足就跳过，别让验收流程崩掉
+    if codex_kills:
+        book = player.get(Codex)
+        if book is not None:
+            for species in codex.rows(session.data, book)[:int(codex_kills)]:
+                codex.record_kill(book, species["species"])
     if not learn_all:
         return
     for skill_id, spec in sorted(session.data.skills["skills"].items()):
@@ -740,11 +834,13 @@ def launch(*, seed: int = 20261019, map_id: str = "biqi_field",
            player_class: str = "warrior", width: int = 1280, height: int = 720,
            shot_path: str | None = None, max_frames: int | None = None,
            level: int = 1, learn: bool = False, gear: bool = False,
-           panel: str | None = None, siege: str | None = None) -> None:
+           panel: str | None = None, siege: str | None = None,
+           gold: int = 0, mercs: tuple[str, ...] = (),
+           codex_kills: int = 0, bag: bool = False) -> None:
     """装配会话 + 开窗（CLI 与测试共用入口）。
 
-    ``panel`` 只用于验收截图：开窗时就打开某个面板（``character``/``shop``/
-    ``warehouse``），截图里能直接看到面板长什么样。
+    ``panel`` 只用于验收截图：开窗时就打开某个面板（``character``/``mercenary``/
+    ``codex``/``auction``/``shop``/``warehouse``），截图里能直接看到面板长什么样。
 
     ``siege`` 是验收开关：传战役 id（如 ``sabak``）时装配完立刻
     :func:`mirsolo.siege.campaign.start_siege`——它内部会换图并铺现场，
@@ -754,7 +850,8 @@ def launch(*, seed: int = 20261019, map_id: str = "biqi_field",
     session = build_session(seed=seed, map_id=map_id)
     populate(session, player_class=player_class)
     prepare_character(session, class_id=player_class, level=level,
-                      learn_all=learn, gear=gear)
+                      learn_all=learn, gear=gear, gold=gold, mercs=mercs,
+                      codex_kills=codex_kills, bag=bag)
     if siege is not None:
         start_siege(session, siege)
     window = MirsoloWindow(session=session, width=width, height=height)

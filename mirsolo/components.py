@@ -298,6 +298,61 @@ class RingState(Component):
 
 
 @dataclass
+class AuctionBook(Component):
+    """拍卖行的挂单账本（P2-S5）。
+
+    为什么挂单要单独一处、而不是"背包里标个记号"：**挂单即离手**是拍卖行的
+    第四条约束（见 ``economy/auction.py``）——物品托管期间不能再穿、不能再卖，
+    否则同一件装备会有两个去处。放在背包里标记，迟早有人写出
+    "穿着身上还在挂单"的状态。
+
+    ``next_seq`` 只增不减：它是撮合随机流名的一部分（``auction:{seq}@{round}``），
+    一旦因为撤单而回退，两张不同的单会共用同一条随机流。
+    """
+
+    listings: list[dict] = field(default_factory=list)
+    next_seq: int = 1
+    #: 面板上的报价档位（速卖/常价/高价）。存组件而不是窗口状态：
+    #: 换面板、关窗口都不该把玩家选好的档位冲掉。
+    ask_tier: int = 0
+
+
+@dataclass
+class Codex(Component):
+    """怪物图鉴（P2-S6）：``species -> 累计击杀数``。
+
+    "解锁"就是"这个 key 存在"——不另存一份 ``unlocked`` 集合。
+    两份事实描述同一件事，迟早会分叉（击杀了却没解锁 / 解锁了却显示 0 杀）。
+
+    图鉴只记**击杀**，不记"见过"：见过没杀过的怪玩家拿不到任何信息，
+    列在图鉴里只是一行灰字，反而让人以为自己漏了什么。
+    """
+
+    kills: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def unlocked(self) -> int:
+        return len(self.kills)
+
+
+@dataclass
+class Mercenary(Component):
+    """佣兵标记（P2-S6）：雇佣来源 + 到期刻。
+
+    佣兵实体本身复用怪物的全套组件（``Attributes``/``AiState``/``Vitals``），
+    只是 ``Identity.kind == "summon"`` 且 ``faction == 0``——
+    这样索敌、追击、出手、死亡清理全部走现有路径，不必另写一套 AI。
+    本组件只带"这是谁雇的、雇到什么时候"这两个**非战斗**事实。
+    """
+
+    merc_id: str = ""
+    until_tick: int = -1
+
+    def expired(self, tick: int) -> bool:
+        return self.until_tick <= tick
+
+
+@dataclass
 class SiegeObjective(Component):
     """攻城目标（城门 / 内城门 / 旗台）。
 

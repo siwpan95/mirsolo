@@ -13,12 +13,15 @@ from mirsolo.components import (
     Attributes,
     Bag,
     Body,
+    Codex,
     Cooldowns,
     Identity,
     Loadout,
+    Mercenary,
     Position,
     Progression,
     Skills,
+    SummonOwner,
     Vitals,
     Wallet,
     Warehouse,
@@ -93,7 +96,57 @@ def spawn_player(
     entity.add(Loadout())
     entity.add(Skills())
     entity.add(Cooldowns())
+    entity.add(Codex())
     apply_growth(entity, class_spec)
+    return entity
+
+
+def _build_combatant(
+    world: World,
+    spec: dict,
+    *,
+    name: str,
+    kind: str,
+    faction: int,
+    species: str,
+    x: float,
+    y: float,
+    eid: str | None = None,
+):
+    """按一份"战斗单位"数据造实体 —— 怪物与佣兵共用的**唯一**构造路径。
+
+    抽这一层的理由很实际：佣兵的属性字段与怪物同构（``hp``/``dc``/``ac``/``mac``/
+    ``accuracy``/``agility``/``attack_speed``/``ai``），复制一份构造代码就等于
+    给自己留一个"改了怪物没改佣兵"的坑——比如以后给怪物加个新组件，
+    佣兵会静默少一样东西。
+
+    ``faction`` 是唯一能把友军与敌人分开的东西：索敌按 faction 判定，
+    所以佣兵（0）会自己去找怪（1）打，怪也会反过来打佣兵，不必另写 AI。
+    """
+    tier = spec.get("ai", DEFAULT_TIER)
+    if tier not in AI_TIERS:
+        tier = DEFAULT_TIER  # 数据写错档位就退回常规，不让造单位直接崩
+
+    unique_eid = eid or next_entity_id(world, species)
+    entity = world.create_entity(unique_eid)
+    entity.add(Identity(name=name, kind=kind, faction=faction, species=species))
+    entity.add(Position(x=x, y=y))
+    hp = int(spec["hp"])
+    entity.add(Vitals(hp=hp, max_hp=hp, mp=0, max_mp=0))
+    entity.add(Attributes(
+        dc=tuple(spec["dc"]),
+        ac=tuple(spec["ac"]),
+        mac=tuple(spec.get("mac", (0, 0))),
+        accuracy=int(spec["accuracy"]),
+        agility=int(spec["agility"]),
+    ))
+    entity.add(AiState(
+        home=(x, y),
+        leash=float(spec.get("leash", BASE_LEASH)) * AI_TIERS[tier]["leash_mult"],
+        vision=float(spec.get("vision", AI_TIERS[tier]["vision"])),
+        tier=tier,
+    ))
+    entity.add(Cooldowns())
     return entity
 
 
@@ -116,29 +169,37 @@ def spawn_monster(
     spec = data.monsters["monsters"].get(monster_id)
     if spec is None:
         raise KeyError(f"未知怪物 {monster_id!r}")
+    return _build_combatant(world, spec, name=spec["name"], kind="monster",
+                            faction=1, species=monster_id, x=x, y=y, eid=eid)
 
-    tier = spec.get("ai", DEFAULT_TIER)
-    if tier not in AI_TIERS:
-        tier = DEFAULT_TIER  # 数据写错档位就退回常规，不让造怪直接崩
 
-    unique_eid = eid or next_entity_id(world, monster_id)
-    entity = world.create_entity(unique_eid)
-    entity.add(Identity(name=spec["name"], kind="monster", faction=1, species=monster_id))
-    entity.add(Position(x=x, y=y))
-    hp = int(spec["hp"])
-    entity.add(Vitals(hp=hp, max_hp=hp, mp=0, max_mp=0))
-    entity.add(Attributes(
-        dc=tuple(spec["dc"]),
-        ac=tuple(spec["ac"]),
-        mac=tuple(spec.get("mac", (0, 0))),
-        accuracy=int(spec["accuracy"]),
-        agility=int(spec["agility"]),
-    ))
-    entity.add(AiState(
-        home=(x, y),
-        leash=float(spec.get("leash", BASE_LEASH)) * AI_TIERS[tier]["leash_mult"],
-        vision=float(spec.get("vision", AI_TIERS[tier]["vision"])),
-        tier=tier,
-    ))
-    entity.add(Cooldowns())
+def spawn_mercenary(
+    world: World,
+    data: GameData,
+    merc_id: str,
+    *,
+    x: float = 0.0,
+    y: float = 0.0,
+    owner_id: int | None = None,
+    tick: int = 0,
+):
+    """创建佣兵实体（P2-S6）：友军阵营的召唤物 + 雇佣到期刻。
+
+    走 :func:`_build_combatant` 与怪物同一条构造路径，只额外挂两样东西：
+
+    * ``SummonOwner`` —— 击杀归属（经验/掉落记到雇主头上，否则凭空消失）；
+    * ``Mercenary`` —— 雇佣来源与到期刻（到期由 ``MercenarySystem`` 解散）。
+
+    ``kind="summon"`` 而不是新造一个 "merc" 种类：死亡清理、尸体移除、
+    "不被玩家误伤"这三条现有判定都按 summon 处理，多一个种类就要改三处。
+    """
+    spec = data.mercenaries["mercenaries"].get(merc_id)
+    if spec is None:
+        raise KeyError(f"未知佣兵 {merc_id!r}")
+    entity = _build_combatant(world, spec, name=spec["name"], kind="summon",
+                              faction=0, species=merc_id, x=x, y=y)
+    if owner_id is not None:
+        entity.add(SummonOwner(owner_id=owner_id))
+    entity.add(Mercenary(merc_id=merc_id,
+                         until_tick=int(tick) + int(spec["duration_ticks"])))
     return entity

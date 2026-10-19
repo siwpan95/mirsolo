@@ -1,0 +1,90 @@
+{
+  "meta": {
+    "note": "佣兵：花金币雇一段时间的友军。字段与 monsters.json 同构（造实体走同一条路径）。",
+    "duration_ticks": "雇佣时长（10Hz，3000 刻 = 5 分钟）",
+    "max": "同一种佣兵同时最多带几名（全局上限由 mercenary.SQUAD_LIMIT 控制）"
+  },
+  "mercenaries": {
+    "gubing": {
+      "name": "雇用兵",
+      "level": 20,
+      "hp": 180,
+      "dc": [
+        6,
+        12
+      ],
+      "ac": [
+        2,
+        5
+      ],
+      "mac": [
+        0,
+        2
+      ],
+      "accuracy": 10,
+      "agility": 8,
+      "attack_speed": 4,
+      "ai": "aggressive",
+      "move_speed": 0.9,
+      "size": 1,
+      "price": 8000,
+      "duration_ticks": 3000,
+      "level_req": 20,
+      "max": 3
+    },
+    "huwei": {
+      "name": "虎卫",
+      "level": 35,
+      "hp": 420,
+      "dc": [
+        10,
+        20
+      ],
+      "ac": [
+        6,
+        12
+      ],
+      "mac": [
+        2,
+        5
+      ],
+      "accuracy": 14,
+      "agility": 10,
+      "attack_speed": 4,
+      "ai": "aggressive",
+      "move_speed": 0.9,
+      "size": 1,
+      "price": 35000,
+      "duration_ticks": 3000,
+      "level_req": 35,
+      "max": 2
+    },
+    "mofashi": {
+      "name": "魔法侍卫",
+      "level": 50,
+      "hp": 600,
+      "dc": [
+        16,
+        30
+      ],
+      "ac": [
+        8,
+        14
+      ],
+      "mac": [
+        4,
+        8
+      ],
+      "accuracy": 18,
+      "agility": 12,
+      "attack_speed": 5,
+      "ai": "aggressive",
+      "move_speed": 0.9,
+      "size": 1,
+      "price": 150000,
+      "duration_ticks": 3000,
+      "level_req": 50,
+      "max": 1
+    }
+  }
+}

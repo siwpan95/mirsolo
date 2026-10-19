@@ -18,6 +18,7 @@ from mirsolo.data.loader import SLOTS, GameData
 from mirsolo.economy.shop import buy, buy_price, sell_price
 from mirsolo.items.equipment import equip
 from mirsolo.presentation.panels import (
+    BUILDERS,
     SLOT_NAMES,
     build_character_panel,
     build_panel,
@@ -111,14 +112,16 @@ def test_rows_do_not_overlap():
 
 @case
 def test_max_rows_matches_screen_capacity():
-    """一屏 16 行（470 面板高 − 46 标题栏 − 24 边距 = 400，400 // 24 = 16）。
+    """一屏 14 行（470 面板高 − 46 标题栏 − 46 页脚 − 24 边距 = 354，354 // 24 = 14）。
 
+    页脚那 46 是给"金币/进度 + 操作提示"两行小字留的：不留的话整栏会铺到
+    面板底边，最后一行正好压在统计文字上（图鉴 23 种怪铺满一栏时实测叠字）。
     这个数变了说明版式动了——刻意用字面量钉住，改版式必须显式改这里。
     """
     session, player = _session()
     try:
         panel = build_shop_panel(player=player, data=DATA)
-        assert max_rows(panel.rect) == 16, max_rows(panel.rect)
+        assert max_rows(panel.rect) == 14, max_rows(panel.rect)
     finally:
         session.shutdown()
 
@@ -335,11 +338,32 @@ def test_unknown_panel_key_is_rejected():
     session, player = _session()
     try:
         try:
-            build_panel("auction", player=player, data=DATA)
+            # 用一个**永远不该成为面板名**的字符串：曾经这里写的是 "auction"，
+            # 等拍卖行真的做出来之后，这条用例就变成"断言拍卖行是未知面板"了。
+            build_panel("definitely_not_a_panel", player=player, data=DATA)
         except KeyError as exc:
-            assert "auction" in str(exc), exc
+            assert "definitely_not_a_panel" in str(exc), exc
         else:
             raise AssertionError("未知面板应报 KeyError")
+    finally:
+        session.shutdown()
+
+
+
+@case
+def test_right_edge_texts_are_right_anchored():
+    """贴右边的文字必须显式 ``anchor_x="right"``：TextAnchor 默认左对齐，
+    页脚「X 关闭」提示的 x 给的是右边界（rect.right - 8），左对齐会把
+    整行甩到面板右边界之外——截图实测抓到过。"""
+    session, player = _session()
+    try:
+        for key in BUILDERS:
+            panel = build_panel(key, player=player, data=DATA)
+            rect = panel.rect
+            for text in panel.texts:
+                if text.x < rect.x + rect.w * 0.6:
+                    continue  # 左半边的文字本来就朝左，不管
+                assert text.anchor_x == "right", (key, text.text, text.x)
     finally:
         session.shutdown()
 

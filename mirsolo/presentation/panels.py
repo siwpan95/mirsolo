@@ -1,4 +1,4 @@
-"""面板布局 —— 角色/商店/仓库三个面板的**纯几何**计算，零 GL。
+"""面板布局 —— 角色/佣兵/图鉴/拍卖行/商店/仓库六个面板的**纯几何**计算，零 GL。
 
 和 :mod:`mirsolo.presentation.hud` 同样的思路：把"哪一行该画在哪、点下去
 意味着什么"算成数据，渲染层照着画、输入层照着命中测试。于是"点了背包第三行
@@ -6,7 +6,7 @@
 而不是靠人肉看截图。
 
 **这里不写经济/装备规则**。面板只产出"动作 + 物品 id"，真正的
-``equip`` / ``buy`` / ``sell`` / ``deposit`` / ``withdraw`` 由窗口层转手交给
+``equip`` / ``buy`` / ``sell`` / ``deposit`` / ``withdraw`` / ``hire`` 由窗口层转手交给
 ``mirsolo.items.equipment`` 与 ``mirsolo.economy.shop`` —— 同一套规则，
 headless 测试与鼠标点击不可能分叉。
 
@@ -14,7 +14,7 @@ headless 测试与鼠标点击不可能分叉。
 字典序在 Python 里稳定，但"依赖插入顺序"会在某个数据表改动后悄悄错位。
 
 **滚动**：一屏放不下的行不截断丢弃，而是记 ``scroll`` 偏移 + 在列的上下端
-标出"还有几种"。商店有 24 种货（8 装备 + 16 技能书），一屏只有 17 行；
+标出"还有几种"。商店有 38 种货（22 装备 + 16 技能书），一屏只有 14 行；
 直接截断会让技能书永远买不到，而且玩家看不出少的是哪些。
 """
 
@@ -22,12 +22,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from allin_engine import Entity
+from allin_engine import Entity, World
 
 from mirsolo.combat.formulas import LUCK_CAP
 from mirsolo.components import (
     Attributes,
+    AuctionBook,
     Bag,
+    Codex,
     Loadout,
     Paralysis,
     Progression,
@@ -35,7 +37,9 @@ from mirsolo.components import (
     Wallet,
     Warehouse,
 )
+from mirsolo.actor import codex, mercenary
 from mirsolo.data.loader import SLOTS, GameData
+from mirsolo.economy import auction
 from mirsolo.economy.shop import buy_price, sell_price
 from mirsolo.items.rings import EFFECT_LABELS, charges_left, ring_effect
 from mirsolo.presentation.hud import Rect, TextAnchor
@@ -46,6 +50,9 @@ PANEL_HEIGHT = 470.0
 PANEL_MARGIN = 24.0
 #: 顶部留白 = 标题行 + 栏头行（两行各占一半，行从这之下开始铺）
 TITLE_HEIGHT = 46.0
+#: 底部留白 = 两行小字（金币/进度 + 操作提示）。不留的话整栏会铺到面板底边，
+#: 最后一行正好压在统计文字上——图鉴 23 种怪铺满一栏时实测叠字。
+FOOTER_HEIGHT = 46.0
 ROW_HEIGHT = 22.0
 ROW_GAP = 2.0
 COLUMN_GAP = 12.0
@@ -123,8 +130,12 @@ def _columns(panel: Rect) -> tuple[Rect, Rect]:
 
 
 def max_rows(panel_rect: Rect) -> int:
-    """一栏最多显示几行（窗口层算滚动步长也要用同一口径）。"""
-    usable = panel_rect.h - TITLE_HEIGHT - 2 * COLUMN_GAP
+    """一栏最多显示几行（窗口层算滚动步长也要用同一口径）。
+
+    扣掉 ``FOOTER_HEIGHT``：底部那两行小字（金币/进度与操作提示）要一直可见，
+    行列表不许铺到它们头上。
+    """
+    usable = panel_rect.h - TITLE_HEIGHT - FOOTER_HEIGHT - 2 * COLUMN_GAP
     return max(1, int(usable // (ROW_HEIGHT + ROW_GAP)))
 
 
@@ -190,7 +201,8 @@ def _stat_hint(spec: dict) -> str:
 
 def build_character_panel(*, player: Entity, data: GameData,
                           width: int = 1280, height: int = 720,
-                          scroll: int = 0, tick: int = 0) -> Panel:
+                          scroll: int = 0, tick: int = 0,
+                          world: World | None = None) -> Panel:
     """角色面板：左 = 装备槽（点一下脱下），右 = 背包（点一下穿上）。
 
     属性行用的是**重算后的当前值**（``Attributes`` 已被 ``recompute`` 写过），
@@ -275,7 +287,7 @@ def build_character_panel(*, player: Entity, data: GameData,
     panel.texts.extend(bag_notes)
     panel.texts.append(TextAnchor("C 关闭　点击行操作　滚轮翻页",
                                   rect.x + rect.w - 8, rect.y + 8, 10,
-                                  (0.6, 0.62, 0.66, 1.0)))
+                                  (0.6, 0.62, 0.66, 1.0), anchor_x="right"))
     return panel
 
 
@@ -292,7 +304,8 @@ def shop_stock(data: GameData) -> list[str]:
 
 def build_shop_panel(*, player: Entity, data: GameData,
                      width: int = 1280, height: int = 720,
-                     scroll: int = 0, tick: int = 0) -> Panel:
+                     scroll: int = 0, tick: int = 0,
+                     world: World | None = None) -> Panel:
     """商店面板：左 = 货架（点一下买入），右 = 背包（点一下卖出）。
 
     ``tick`` 本页用不到，只为与 :func:`build_panel` 的派发签名保持一致
@@ -339,13 +352,14 @@ def build_shop_panel(*, player: Entity, data: GameData,
     panel.texts.extend(shop_notes)
     panel.texts.extend(sell_notes)
     panel.texts.append(TextAnchor("B 关闭　滚轮翻页", rect.x + rect.w - 8, rect.y + 8,
-                                  10, (0.6, 0.62, 0.66, 1.0)))
+                                  10, (0.6, 0.62, 0.66, 1.0), anchor_x="right"))
     return panel
 
 
 def build_warehouse_panel(*, player: Entity, data: GameData,
                           width: int = 1280, height: int = 720,
-                          scroll: int = 0, tick: int = 0) -> Panel:
+                          scroll: int = 0, tick: int = 0,
+                          world: World | None = None) -> Panel:
     """仓库面板：左 = 背包（点一下存入），右 = 仓库（点一下取出）。
 
     ``tick`` 本页不用，理由同 :func:`build_shop_panel`。
@@ -389,12 +403,214 @@ def build_warehouse_panel(*, player: Entity, data: GameData,
     panel.texts.extend(dep_notes)
     panel.texts.extend(with_notes)
     panel.texts.append(TextAnchor("V 关闭　滚轮翻页", rect.x + rect.w - 8, rect.y + 8,
-                                  10, (0.6, 0.62, 0.66, 1.0)))
+                                  10, (0.6, 0.62, 0.66, 1.0), anchor_x="right"))
+    return panel
+
+
+def build_auction_panel(*, player: Entity, data: GameData,
+                        width: int = 1280, height: int = 720,
+                        scroll: int = 0, tick: int = 0,
+                        world: World | None = None) -> Panel:
+    """拍卖行面板（P2-S5）：左 = 背包（点一下按当前档位寄卖），右 = 我的挂单（点一下撤单）。
+
+    每行把**要价与成交概率一起写出来**（``速卖 300 金 · 约 40%``）：
+    拍卖行的策略维度就是"快卖还是多赚"，玩家看不见概率就只能瞎猜，
+    而概率是数据表里的数，显示它不需要任何额外计算。
+
+    报价档的切换做成面板底部一行可点条目，而不是输入框：
+    输入框要处理退格、越界、空串，而三档已经覆盖了全部有意义的要价。
+    """
+    rect = _panel_rect(width, height)
+    left, right = _columns(rect)
+    panel = Panel(key="auction", title="拍卖行", rect=rect, scroll=scroll)
+
+    book = player.get(AuctionBook)
+    tier = int(book.ask_tier) if book is not None else 0
+    tier = max(0, min(len(auction.ASK_TIERS) - 1, tier))
+    tier_name = auction.ASK_TIERS[tier][0]
+
+    bag_entries: list[tuple[str, str, str, str, bool]] = []
+    bag = player.get(Bag)
+    items = dict(bag.items) if bag is not None else {}
+    for item_id in sorted(items):
+        ask = auction.ask_for_tier(data, item_id, tier)
+        if ask is None:
+            bag_entries.append(("none", item_id, _item_label(data, item_id),
+                                "不可寄卖", False))
+            continue
+        chance = auction.chance_bp(data, item_id, ask)
+        bag_entries.append(("list", item_id, _item_label(data, item_id),
+                            f"{tier_name} {ask} 金 · 约 {chance // 100}%", True))
+    bag_rows, bag_max, bag_notes = _fill_rows(rect, left, bag_entries, scroll=scroll)
+    panel.rows.extend(bag_rows)
+    panel.sections.append(TextAnchor("背包（点击寄卖）", left.x + 4, left.top - 40, 13,
+                                     (0.95, 0.86, 0.55, 1.0)))
+
+    listing_entries: list[tuple[str, str, str, str, bool]] = []
+    for listing in (book.listings if book is not None else []):
+        item_id = str(listing.get("item", ""))
+        listing_entries.append(("cancel", str(listing.get("seq", 0)),
+                                f"{_item_label(data, item_id)} ×{listing.get('count', 1)}",
+                                f"要价 {listing.get('ask', 0)} 金 · 第 {listing.get('listed_tick', 0)} 刻挂出",
+                                True))
+    list_rows, list_max, list_notes = _fill_rows(rect, right, listing_entries, scroll=scroll)
+    panel.rows.extend(list_rows)
+    panel.sections.append(TextAnchor("我的挂单（点击撤单）", right.x + 4, right.top - 40, 13,
+                                     (0.95, 0.86, 0.55, 1.0)))
+    panel.scroll_max = max(bag_max, list_max)
+    # 报价档位：做成一行可点条目（放在面板底部，不占两栏的行位）。
+    panel.rows.append(Row(
+        rect=Rect(rect.x + COLUMN_GAP, rect.y + 8, rect.w - 2 * COLUMN_GAP, ROW_HEIGHT),
+        text=f"报价档：{tier_name}（点击切换）",
+        action="cycle_tier", item="", detail="", enabled=True))
+
+    wallet = player.get(Wallet)
+    gold = int(wallet.gold) if wallet is not None else 0
+    # 比别的面板抬 12px：这一页底部还有一行「报价档」可点条目（rect.y + 8），
+    # 不抬的话三行小字挤在页脚带里、实测压在那一行上叠字。
+    panel.texts.append(TextAnchor(f"金币 {gold}", left.x + 4, left.y + 52, 11,
+                                  (0.95, 0.86, 0.55, 1.0)))
+    panel.texts.append(TextAnchor(
+        f"成交扣 {auction.FEE_PERMILLE // 10}% 手续费　每 {auction.CHECK_TICKS // 10} 秒撮合一次",
+        left.x + 4, left.y + 34, 10, (0.72, 0.72, 0.76, 1.0)))
+    panel.texts.extend(bag_notes)
+    panel.texts.extend(list_notes)
+    panel.texts.append(TextAnchor("N 关闭　滚轮翻页", rect.x + rect.w - 8, rect.y + 34, 10,
+                                  (0.6, 0.62, 0.66, 1.0), anchor_x="right"))
+    return panel
+
+
+def build_mercenary_panel(*, player: Entity, data: GameData,
+                          width: int = 1280, height: int = 720,
+                          scroll: int = 0, tick: int = 0,
+                          world: World | None = None) -> Panel:
+    """佣兵面板（P2-S6）：左 = 可雇清单（点一下雇佣），右 = 当前队伍（只读）。
+
+    这一页**必须写清楚两件事**，否则玩家会以为钱被吞了：
+
+    * 佣兵是**买一段时间**，不是永久随从（面板底部写"到期自动离队"）；
+    * **换图不会带走佣兵**（``world.travel`` 会清掉除玩家外的实体）。
+
+    右边一栏只读、点了也不做事（``enabled=False``）：主动解散没有被做出来，
+    因为它会让"花 15 万雇来、打两刀就解散退款"变成一个可钻的空子。
+
+    ``world`` 为 ``None`` 时右边一栏空着（单测直接调本函数时不传也能画）。
+    """
+    rect = _panel_rect(width, height)
+    left, right = _columns(rect)
+    panel = Panel(key="mercenary", title="佣兵", rect=rect, scroll=scroll)
+    wallet = player.get(Wallet)
+    gold = int(wallet.gold) if wallet is not None else 0
+    prog = player.get(Progression)
+    level = int(prog.level) if prog is not None else 1
+
+    table = data.mercenaries.get("mercenaries", {})
+    crew = mercenary.squad(world, player.id) if world is not None else []
+    entries: list[tuple[str, str, str, str, bool]] = []
+    for merc_id, spec in sorted(table.items(),
+                                key=lambda kv: (int(kv[1]["level_req"]), kv[0])):
+        price = int(spec["price"])
+        need = int(spec["level_req"])
+        hint = f"{price} 金 · {int(spec['duration_ticks']) // 10} 秒 · {spec['hp']} 血"
+        able = True
+        if level < need:
+            hint += f"（需 {need} 级）"
+            able = False
+        elif gold < price:
+            hint += "（钱不够）"
+            able = False
+        elif len(crew) >= mercenary.SQUAD_LIMIT:
+            hint += f"（随从已满 {mercenary.SQUAD_LIMIT} 名）"
+            able = False
+        elif mercenary.count_of_kind(world, player.id, merc_id) >= int(spec["max"]):
+            hint += f"（{spec['name']} 最多 {spec['max']} 名）"
+            able = False
+        entries.append(("hire", merc_id, str(spec["name"]), hint, able))
+    hire_rows, hire_max, hire_notes = _fill_rows(rect, left, entries, scroll=scroll)
+    panel.rows.extend(hire_rows)
+    panel.sections.append(TextAnchor("可雇（点击雇佣）", left.x + 4, left.top - 40, 13,
+                                     (0.95, 0.86, 0.55, 1.0)))
+
+    crew_entries: list[tuple[str, str, str, str, bool]] = []
+    for member in crew:
+        info = mercenary.roster(world, player.id, tick)
+        row = next((r for r in info if r["eid"] == member.eid), None)
+        left_secs = int(row["remaining"]) // 10 if row is not None else 0
+        crew_entries.append(("none", member.eid, str(row["name"]) if row else member.eid,
+                             f"剩余 {left_secs} 秒（到期自动离队）", False))
+    crew_rows, crew_max, crew_notes = _fill_rows(rect, right, crew_entries, scroll=scroll)
+    panel.rows.extend(crew_rows)
+    panel.sections.append(TextAnchor(
+        f"我的队伍 {len(crew)}/{mercenary.SQUAD_LIMIT}", right.x + 4, right.top - 40, 13,
+        (0.95, 0.86, 0.55, 1.0)))
+    panel.scroll_max = max(hire_max, crew_max)
+
+    panel.texts.append(TextAnchor(f"金币 {gold}　{level} 级", left.x + 4, left.y + 40, 11,
+                                  (0.95, 0.86, 0.55, 1.0)))
+    panel.texts.append(TextAnchor("佣兵到期自动离队，且不会跟着换图",
+                                  left.x + 4, left.y + 24, 10, (0.72, 0.72, 0.76, 1.0)))
+    panel.texts.extend(hire_notes)
+    panel.texts.extend(crew_notes)
+    panel.texts.append(TextAnchor("M 关闭　滚轮翻页", rect.x + rect.w - 8, rect.y + 8,
+                                  10, (0.6, 0.62, 0.66, 1.0), anchor_x="right"))
+    return panel
+
+
+def build_codex_panel(*, player: Entity, data: GameData,
+                      width: int = 1280, height: int = 720,
+                      scroll: int = 0, tick: int = 0,
+                      world: World | None = None) -> Panel:
+    """怪物图鉴（P2-S6）：左 = 每种怪与击杀数，右 = 同一只怪的掉落来源。
+
+    两栏**共用同一份排序与同一个 scroll**：图鉴是"查资料"的地方，
+    左边第 3 行和右边第 3 行必须说的是同一只怪，各自滚动就对不上了。
+
+    整页只读（``enabled=False``）：图鉴没有可操作项，点它只会发出
+    "不能操作"的提示——那句提示本身也是信息（告诉玩家这里没有按钮）。
+    """
+    rect = _panel_rect(width, height)
+    left, right = _columns(rect)
+    panel = Panel(key="codex", title="怪物图鉴", rect=rect, scroll=scroll)
+    book = player.get(Codex)
+    table = codex.rows(data, book)
+
+    left_entries: list[tuple[str, str, str, str, bool]] = []
+    right_entries: list[tuple[str, str, str, str, bool]] = []
+    for row in table:
+        mark = "" if row["unlocked"] else "未解锁 · "
+        left_entries.append(("none", row["species"], row["name"],
+                             f"Lv{row['level']} · {row['hp']} 血 · {mark}击杀 {row['kills']}",
+                             False))
+        right_entries.append(("none", row["species"], row["drop"], "", False))
+    left_rows, left_max, left_notes = _fill_rows(rect, left, left_entries, scroll=scroll)
+    right_rows, right_max, right_notes = _fill_rows(rect, right, right_entries, scroll=scroll)
+    panel.rows.extend(left_rows)
+    panel.rows.extend(right_rows)
+    panel.sections.append(TextAnchor("怪物（等级升序）", left.x + 4, left.top - 40, 13,
+                                     (0.95, 0.86, 0.55, 1.0)))
+    panel.sections.append(TextAnchor("掉落来源", right.x + 4, right.top - 40, 13,
+                                     (0.95, 0.86, 0.55, 1.0)))
+    panel.scroll_max = max(left_max, right_max)
+
+    stat = codex.summary(data, book)
+    panel.texts.append(TextAnchor(
+        f"已解锁 {stat['unlocked']}/{stat['total']}（{stat['pct'] // 10}%）",
+        left.x + 4, left.y + 40, 11, (0.95, 0.86, 0.55, 1.0)))
+    panel.texts.append(TextAnchor(
+        f"首次击杀额外 +{codex.FIRST_KILL_EXP_PERMILLE // 10}% 该怪经验",
+        left.x + 4, left.y + 24, 10, (0.72, 0.72, 0.76, 1.0)))
+    panel.texts.extend(left_notes)
+    panel.texts.extend(right_notes)
+    panel.texts.append(TextAnchor("J 关闭　滚轮翻页", rect.x + rect.w - 8, rect.y + 8,
+                                  10, (0.6, 0.62, 0.66, 1.0), anchor_x="right"))
     return panel
 
 
 BUILDERS = {
     "character": build_character_panel,
+    "mercenary": build_mercenary_panel,
+    "codex": build_codex_panel,
+    "auction": build_auction_panel,
     "shop": build_shop_panel,
     "warehouse": build_warehouse_panel,
 }
@@ -402,10 +618,15 @@ BUILDERS = {
 
 def build_panel(key: str, *, player: Entity, data: GameData,
                 width: int = 1280, height: int = 720, scroll: int = 0,
-                tick: int = 0) -> Panel:
-    """按名字造面板（窗口层只认名字，不认构造函数）。"""
+                tick: int = 0, world: World | None = None) -> Panel:
+    """按名字造面板（窗口层只认名字，不认构造函数）。
+
+    ``world`` 统一派发给每个面板：只有佣兵面板要用它（读场上队伍），
+    其余面板忽略。宁可多传一个参数，也不要在这里按面板名分支——
+    那种分支迟早漏掉新加的面板，而且漏的时候是运行时 KeyError。
+    """
     builder = BUILDERS.get(key)
     if builder is None:
         raise KeyError(f"未知面板 {key!r}")
     return builder(player=player, data=data, width=width, height=height,
-                   scroll=scroll, tick=tick)
+                   scroll=scroll, tick=tick, world=world)

@@ -67,6 +67,10 @@ RING_PARAM_KEYS: dict[str, tuple[str, ...]] = {
     "flame": ("power_permille",),
 }
 
+#: AI 档位（与 ``actor.factory.AI_TIERS`` 同名同义；loader 只认名字，
+#: 具体视野/脱战数值由 factory 持有，避免两处都写一份）
+AI_TIERS = ("passive", "aggressive", "elite")
+
 #: 攻城目标类型：城门 / 内城门 / 旗台（旗台倒下 = 战役胜利）
 SIEGE_OBJECTIVES = frozenset({"gate", "inner_gate", "banner"})
 
@@ -96,6 +100,7 @@ class GameData:
     drops: dict
     maps: dict
     sieges: dict = field(default_factory=dict)
+    mercenaries: dict = field(default_factory=dict)
     data_dir: Path = field(default_factory=data_dir_default)
     errors: list[str] = field(default_factory=list)
 
@@ -114,6 +119,7 @@ class GameData:
             drops=_read_json(base / "drops.json"),
             maps=_read_json(base / "maps.json"),
             sieges=_read_json(base / "sieges.json"),
+            mercenaries=_read_json(base / "mercenaries.json"),
             data_dir=base,
         )
         game.errors = game.validate() + game.cross_check()
@@ -150,6 +156,9 @@ class GameData:
 
     def siege(self, siege_id: str) -> dict:
         return self.sieges["sieges"][siege_id]
+
+    def merc(self, merc_id: str) -> dict:
+        return self.mercenaries["mercenaries"][merc_id]
 
     # ── 校验：结构层 ────────────────────────────────
 
@@ -223,6 +232,23 @@ class GameData:
                     omitted = [k for k in RING_PARAM_KEYS[effect] if k not in param]
                     if omitted:
                         errs.append(f"items.json[{iid}]: ring_param 缺 {omitted}")
+            # 拍卖行（P2-S5）：标了 ``auction`` 就是可寄卖，参数必须齐全。
+            # 值域只查"是不是合法万分比/千分比"，而"底价必须高于商店回收价"
+            # 这种跨模块的经济约束留给 ``auction-book`` 门禁（那里能读到
+            # ``shop.SELL_DIVISOR``，口径只有一份）。
+            param = spec.get("auction")
+            if param is not None:
+                if not isinstance(param, dict):
+                    errs.append(f"items.json[{iid}]: auction 必须是字典")
+                else:
+                    demand = param.get("demand_bp")
+                    if not isinstance(demand, int) or not 0 < demand <= 10000:
+                        errs.append(
+                            f"items.json[{iid}]: auction.demand_bp 必须是 (0, 10000] 的万分比")
+                    floor = param.get("floor_permille")
+                    if not isinstance(floor, int) or not 0 < floor <= 1000:
+                        errs.append(
+                            f"items.json[{iid}]: auction.floor_permille 必须是 (0, 1000] 的千分比")
             if kind == "book":
                 teaches = spec.get("teaches")
                 if teaches not in self.skills["skills"]:
@@ -330,6 +356,21 @@ class GameData:
                     errs.append(f"sieges.json[{siege_id}]: 奖励物品 {entry.get('item')!r} 不存在")
             if int(spec.get("time_limit_ticks", 0)) <= 0:
                 errs.append(f"sieges.json[{siege_id}]: time_limit_ticks 必须为正")
+
+        # 佣兵（P2-S6）：字段与怪物表同构，多出雇佣相关的四个字段
+        for merc_id, spec in self.mercenaries.get("mercenaries", {}).items():
+            for key in ("name", "level", "hp", "dc", "ac", "mac", "accuracy",
+                        "agility", "attack_speed", "ai",
+                        "price", "duration_ticks", "level_req", "max"):
+                if key not in spec:
+                    errs.append(f"mercenaries.json[{merc_id}]: 缺字段 {key}")
+            if spec.get("ai") not in AI_TIERS:
+                errs.append(f"mercenaries.json[{merc_id}]: 未知 ai {spec.get('ai')!r}")
+            for key in ("hp", "price", "duration_ticks", "level_req", "max"):
+                if int(spec.get(key, 0)) <= 0:
+                    errs.append(f"mercenaries.json[{merc_id}]: {key} 必须为正")
+            if len(spec.get("dc", ())) != 2 or len(spec.get("ac", ())) != 2:
+                errs.append(f"mercenaries.json[{merc_id}]: dc/ac 必须是 (下限, 上限)")
 
         return errs
 

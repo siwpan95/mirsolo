@@ -24,11 +24,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-DATA_TABLES = ("exp", "classes", "skills", "monsters", "items", "drops", "maps", "sieges")
+DATA_TABLES = ("exp", "classes", "skills", "monsters", "items", "drops", "maps",
+               "sieges", "mercenaries")
 
 
 def gate_data_integrity() -> tuple[bool, str]:
-    """八张数据表的引用完整性（掉落/刷新/技能职业/攻城全部可解析）。"""
+    """九张数据表的引用完整性（掉落/刷新/技能职业/攻城全部可解析）。"""
     from mirsolo.data.loader import GameData
 
     game = GameData.load()
@@ -39,7 +40,7 @@ def gate_data_integrity() -> tuple[bool, str]:
 
 
 def gate_data_files() -> tuple[bool, str]:
-    """data/ 下八张表齐全且是合法 JSON。"""
+    """data/ 下九张表齐全且是合法 JSON。"""
     missing = [f"{name}.json" for name in DATA_TABLES
                if not (ROOT / "data" / f"{name}.json").exists()]
     if missing:
@@ -196,6 +197,104 @@ def gate_ring_effects(data=None) -> tuple[bool, str]:
         return False, f"以下戒指没有任何掉落来源: {stranded}"
     return True, (f"六效齐备（{len(rings)} 枚戒指），参数值域合规，"
                   f"且每枚都有 BOSS 掉落来源")
+
+
+def gate_auction_book(data=None) -> tuple[bool, str]:
+    """拍卖行：装备与技能书都寄卖得掉，且**底价高于商店回收价**。
+
+    ``loader.validate`` 只查"键在不在、值域对不对"，这里查它查不了的两件事：
+
+    * **覆盖**——没标 ``auction`` 的装备在拍卖行里等于不存在，而"为什么这件
+      不能寄卖"只有翻 JSON 才看得出来（面板上它显示为灰色"不可寄卖"，
+      但没人会去数灰了几行）。
+    * **底价 > 回收价**——这是拍卖行**存在的理由**：比卖商店多换点钱。
+      数据表一旦写低，玩家永远该直接卖商店，拍卖行就是白做的。
+    """
+    if data is None:
+        from mirsolo.data.loader import GameData
+
+        data = GameData.load()
+    from mirsolo.economy import auction
+    from mirsolo.economy.shop import sell_price
+
+    tradeable = [item_id for item_id, spec in data.items["items"].items()
+                 if spec.get("kind", "equip") in ("equip", "book")]
+    stranded = [i for i in tradeable if auction.auction_param(data, i) is None]
+    if stranded:
+        return False, f"以下物品不能寄卖: {sorted(stranded)}"
+    cheap = []
+    for item_id in tradeable:
+        floor, cap = auction.price_bounds(data, item_id)
+        if floor <= sell_price(data, item_id):
+            cheap.append(f"{item_id}(底价 {floor} <= 回收 {sell_price(data, item_id)})")
+        if cap <= floor:
+            cheap.append(f"{item_id}(上限 {cap} <= 底价 {floor})")
+    if cheap:
+        return False, "寄卖不比卖商店划算: " + "; ".join(sorted(cheap))
+    return True, f"{len(tradeable)} 件可寄卖，底价都高于商店回收价"
+
+
+def gate_merc_hire(data=None) -> tuple[bool, str]:
+    """佣兵：门槛**练得到**、价格随门槛递增、``SQUAD_LIMIT`` 真的在起作用。
+
+    三条都是"改表改出来的事故"：
+
+    * 门槛高于全部地图的等级带上限 → 这条佣兵永远雇不到，等于不存在；
+    * 价格与门槛不单调递增 → "贵的更弱"，玩家一眼看出表是乱填的；
+    * ``sum(max) <= SQUAD_LIMIT`` → 全局上限永远触发不了，是死代码。
+      死掉的约束最危险：它看起来在保护平衡，其实什么都没做。
+    """
+    if data is None:
+        from mirsolo.data.loader import GameData
+
+        data = GameData.load()
+    from mirsolo.actor import mercenary
+
+    table = data.mercenaries.get("mercenaries", {})
+    if not table:
+        return False, "佣兵表是空的"
+    top = max(int(spec["level_range"][1]) for spec in data.maps["maps"].values())
+
+    bad = []
+    for merc_id, spec in sorted(table.items()):
+        if int(spec["level_req"]) > top:
+            bad.append(f"{merc_id} 门槛 {spec['level_req']} 级 > 地图带上限 {top} 级")
+        if int(spec["price"]) <= 0 or int(spec["duration_ticks"]) <= 0:
+            bad.append(f"{merc_id} 价格/时长必须为正")
+
+    ladder = sorted(table.items(), key=lambda kv: int(kv[1]["level_req"]))
+    prices = [int(spec["price"]) for _, spec in ladder]
+    if prices != sorted(prices):
+        bad.append("价格未随等级门槛递增：" + " < ".join(str(p) for p in prices))
+
+    kind_total = sum(int(spec["max"]) for spec in table.values())
+    if kind_total <= mercenary.SQUAD_LIMIT:
+        bad.append(f"各 max 之和 {kind_total} <= SQUAD_LIMIT {mercenary.SQUAD_LIMIT}"
+                   f"（全局上限永远触发不了）")
+    if bad:
+        return False, "; ".join(bad)
+    return True, (f"{len(table)} 种佣兵，门槛 1-{top} 级内可达，价格递增，"
+                  f"全局上限 {mercenary.SQUAD_LIMIT} < 各 max 之和 {kind_total}（确实在起作用）")
+
+
+def gate_codex_coverage(data=None) -> tuple[bool, str]:
+    """图鉴：怪物表每一种都要**查得到出处**（掉落表有条目）。
+
+    图鉴每一行右侧写的是"这只怪出什么"。没有掉落表的怪在图鉴里会显示
+    "无掉落"——那等于告诉玩家这只怪白打，而实际上多半只是掉落表漏挂了。
+    """
+    if data is None:
+        from mirsolo.data.loader import GameData
+
+        data = GameData.load()
+    monsters = data.monsters["monsters"]
+    drops = data.drops["drops"]
+    if not monsters:
+        return False, "怪物表是空的"
+    stranded = sorted(species for species in monsters if not drops.get(species))
+    if stranded:
+        return False, f"以下怪没有掉落表，图鉴会显示「无掉落」: {stranded}"
+    return True, f"{len(monsters)} 种怪都有掉落来源，图鉴每一行都查得到出处"
 
 
 def gate_tests_registered() -> tuple[bool, str]:
@@ -363,11 +462,14 @@ def gate_map_bands(data=None) -> tuple[bool, str]:
 
 
 GATES = [
-    ("data-integrity", "八张数据表的引用完整性（掉落/刷新/技能职业/攻城可解析）", gate_data_integrity),
-    ("data-files", "data/ 下八张表齐全且是合法 JSON", gate_data_files),
+    ("data-integrity", "九张数据表的引用完整性（掉落/刷新/技能职业/攻城可解析）", gate_data_integrity),
+    ("data-files", "data/ 下九张表齐全且是合法 JSON", gate_data_files),
     ("map-bands", "地图等级带连续且传送图全连通", gate_map_bands),
     ("luck-sources", "幸运只来自武器/项链、值域合规、三职业都凑得到 9", gate_luck_sources),
     ("ring-effects", "六枚特戒六效齐备、参数值域合规、每枚都有掉落来源", gate_ring_effects),
+    ("auction-book", "装备/技能书都可寄卖，且底价高于商店回收价", gate_auction_book),
+    ("merc-hire", "佣兵门槛练得到、价格递增、全局上限真在起作用", gate_merc_hire),
+    ("codex-coverage", "图鉴覆盖的每一种怪都有掉落来源", gate_codex_coverage),
     ("tests-registered", "run_tests.MODULES ↔ tests/test_*.py 双向一致", gate_tests_registered),
     ("readme-commands", "README 里的 python -m 目标都真实可导入", gate_readme_commands),
     ("readme-tree-real", "README 项目结构里的路径都真实存在", gate_tree_real),
@@ -518,6 +620,65 @@ def _selfcheck() -> int:
     else:
         failures += 1
         print("  FAIL ring-effects 未拦住没有掉落来源的戒指")
+
+
+    # 11) auction-book：把一件装备的 auction 字段摘掉，必须报"不能寄卖"
+    _item = game.items["items"]["mujian"]
+    _saved_auction = _item.pop("auction")
+    ok, detail = gate_auction_book(game)
+    _item["auction"] = _saved_auction
+    if not ok and "不能寄卖" in detail:
+        print("  ok   auction-book 能拦住漏标 auction 的物品")
+    else:
+        failures += 1
+        print(f"  FAIL auction-book 未拦住漏标 auction 的物品（{detail}）")
+
+    # 12) auction-book 的另一半：把底价压到回收价以下，必须报"不划算"
+    _param = game.items["items"]["mujian"]["auction"]
+    _saved_floor = _param["floor_permille"]
+    _param["floor_permille"] = 1
+    ok, detail = gate_auction_book(game)
+    _param["floor_permille"] = _saved_floor
+    if not ok and "不比卖商店划算" in detail:
+        print("  ok   auction-book 能拦住底价不高于回收价（拍卖行不能白做）")
+    else:
+        failures += 1
+        print("  FAIL auction-book 未拦住底价不高于回收价")
+
+    # 13) merc-hire：把魔法侍卫门槛抬到地图带之上，必须报"永远雇不到"
+    _merc = game.mercenaries["mercenaries"]["mofashi"]
+    _saved_req = _merc["level_req"]
+    _merc["level_req"] = 999
+    ok, detail = gate_merc_hire(game)
+    _merc["level_req"] = _saved_req
+    if not ok and "地图带上限" in detail:
+        print("  ok   merc-hire 能拦住练不到的等级门槛")
+    else:
+        failures += 1
+        print(f"  FAIL merc-hire 未拦住练不到的等级门槛（{detail}）")
+
+    # 14) merc-hire 的另一半：把所有 max 压到 1，全局上限就成了死代码
+    _saved_max = {k: v["max"] for k, v in game.mercenaries["mercenaries"].items()}
+    for _spec in game.mercenaries["mercenaries"].values():
+        _spec["max"] = 1
+    ok, detail = gate_merc_hire(game)
+    for _k, _v in _saved_max.items():
+        game.mercenaries["mercenaries"][_k]["max"] = _v
+    if not ok and "永远触发不了" in detail:
+        print("  ok   merc-hire 能拦住够不着的全局上限（死约束）")
+    else:
+        failures += 1
+        print(f"  FAIL merc-hire 未拦住够不着的全局上限（{detail}）")
+
+    # 15) codex-coverage：把鸡从掉落表里摘掉，必须报"图鉴无出处"
+    _saved_drop = game.drops["drops"].pop("ji")
+    ok, detail = gate_codex_coverage(game)
+    game.drops["drops"]["ji"] = _saved_drop
+    if not ok and "ji" in detail:
+        print("  ok   codex-coverage 能拦住没有掉落来源的怪")
+    else:
+        failures += 1
+        print(f"  FAIL codex-coverage 未拦住没有掉落来源的怪（{detail}）")
 
     print(f"\nselfcheck: {'PASS' if failures == 0 else f'{failures} 条门禁形同虚设'}")
     return 0 if failures == 0 else 1

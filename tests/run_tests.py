@@ -38,6 +38,9 @@ MODULES = [
     "test_siege",
     "test_luck",
     "test_rings",
+    "test_auction",
+    "test_mercenary",
+    "test_codex",
 ]
 
 PASS_MARKER = "ALL_MIRSOLO_TESTS_PASSED"

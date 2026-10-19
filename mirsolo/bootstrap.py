@@ -28,10 +28,13 @@ from mirsolo.actor.systems import (
     KEY_TICK,
     AiTargetSystem,
     AttackSystem,
+    AuctionSystem,
+    CodexSystem,
     CooldownSystem,
     DeathRewardSystem,
     MobAttackSystem,
     MobChaseSystem,
+    MercenarySystem,
     MovementSystem,
     RegenSystem,
     RespawnSystem,
@@ -159,8 +162,11 @@ def build_session(
     ctx = CombatContext(seed=seed, world=world, bus=bus, tick=0)
 
     death_system = DeathRewardSystem(data=game_data, seed=seed).bind(world)
+    codex_system = CodexSystem(data=game_data).bind(world)
     world.add_system(TickSystem())
     world.add_system(RegenSystem())
+    world.add_system(AuctionSystem(seed=seed))
+    world.add_system(MercenarySystem())
     world.add_system(CooldownSystem())
     world.add_system(StatusSystem(ctx))
     world.add_system(MovementSystem())
@@ -171,6 +177,7 @@ def build_session(
     world.add_system(MobAttackSystem(game_data))
     world.add_system(AttackSystem(ctx))
     world.add_system(death_system)
+    world.add_system(codex_system)
     world.add_system(RespawnSystem(data=game_data, seed=seed, tick_dt=tick_dt))
     world.add_system(SiegeSystem(game_data, seed=seed, ctx=ctx))  # p50：伤害结算之后推进
     world.add_system(PortalSystem())  # 最后跑：先结算完这一 tick 的移动/攻击

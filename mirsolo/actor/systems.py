@@ -5,6 +5,8 @@
 | priority | 系统 | 职责 |
 |---:|---|---|
 | 5 | ``RegenSystem`` | 每刻回血回蓝（静止加成，战斗中断） |
+| 6 | ``AuctionSystem`` | 拍卖行撮合（每 ``CHECK_TICKS`` 刻结算一轮挂单） |
+| 7 | ``MercenarySystem`` | 佣兵到期解散（``Mercenary.until_tick`` 到点即离场） |
 | 10 | ``CooldownSystem`` | 每帧递减技能冷却 |
 | 11 | ``AiTargetSystem`` | 给主动怪选目标（同阵营跳过、超脱战距离放弃） |
 | 12 | ``MovementSystem`` | 玩家八向网格移动（读 move_intent，按刻落格） |
@@ -14,6 +16,7 @@
 | 28 | ``MobAttackSystem`` | 相邻怪按自身攻速排队出刀 |
 | 30 | ``AttackSystem`` | 消费攻击意图队列 → 调 ``CombatResolver`` 结算 |
 | 40 | ``DeathRewardSystem`` | 结算死亡奖励：经验 + 掉落 + 金币 |
+| 41 | ``CodexSystem`` | 图鉴记账 + 首次解锁奖励（订阅死亡事件） |
 | 90 | ``RespawnSystem`` | 按地图刷新表补刷（P0 用固定 tick 间隔） |
 
 **意图队列**是这一层的核心设计：AI/输入只往 ``world.get_data("attack_intents")``
@@ -26,14 +29,18 @@ from __future__ import annotations
 from allin_engine import Entity, System, World
 
 from mirsolo.combat.resolver import EVT_DEATH, CombatContext, CombatResolver
+from mirsolo.data.loader import GameData
 from mirsolo.components import (
     AiState,
+    AuctionBook,
     Attributes,
     Bag,
+    Codex,
     Cooldowns,
     Identity,
     Invisible,
     Loadout,
+    Mercenary,
     Paralysis,
     Poison,
     Position,
@@ -43,7 +50,9 @@ from mirsolo.components import (
     Vitals,
     Wallet,
 )
+from mirsolo.actor import codex, mercenary
 from mirsolo.determinism import Rng
+from mirsolo.economy import auction
 from mirsolo.items import rings
 from mirsolo.items.drops import roll_drops
 from mirsolo.items.equipment import recompute
@@ -54,6 +63,52 @@ KEY_INTENTS = "attack_intents"
 KEY_KILL_COUNTS = "kill_counts"
 KEY_REWARDS = "reward_queue"
 KEY_MOVE_INTENT = "move_intent"
+
+#: 佣兵到期离队（字符串与 ``mercenary.EVT_DISMISS`` 同一个，这里导入避免系统与规则层互相 import）
+EVT_MERC_DISMISS = mercenary.EVT_DISMISS
+
+
+def resolve_owner(world: World, killer: Entity) -> Entity:
+    """召唤物/佣兵的击杀 → 归属到主人；没有归属或主人已不在场则原样返回。
+
+    抽成一个函数是因为**两个系统都要用**：``DeathRewardSystem`` 发掉落、
+    ``CodexSystem`` 记图鉴。各写一份的话，以后加了"第二层归属"（比如佣兵
+    带着自己的召唤物）就只有一处会跟着改，另一处静默把奖励算错人。
+    """
+    ref = killer.get(SummonOwner)
+    if ref is None or ref.owner_id is None:
+        return killer
+    owner = world.get_entity(ref.owner_id)
+    return owner if owner is not None else killer
+
+
+def grant_exp(world: World, data: GameData, entity: Entity, amount: int,
+              tick: int | None = None) -> int:
+    """加经验的**唯一**入口（升级 → 成长 → 重算装备 → 写升级提示）。
+
+    升级这一步必须连做三件事，漏一件都会出错：
+
+    * ``apply_growth`` 重算覆盖面（不重算就永远停在 1 级属性）；
+    * ``recompute`` 重算装备加成（不重算等于升一级把武器丢了）；
+    * ``last_level_up`` 写世界状态（表现层靠它弹提示）。
+
+    死亡奖励与图鉴解锁都走这里，所以"哪一路给的经验"不会有两种升级行为。
+    返回实际发出的经验（``Progression`` 缺失或数量非正时为 0）。
+    """
+    prog = entity.get(Progression)
+    if prog is None or amount <= 0:
+        return 0
+    result = add_exp(data, prog, int(amount))
+    if result.levels_gained:
+        class_spec = data.classes["classes"][prog.class_id]
+        apply_growth(entity, class_spec)
+        recompute(entity, data)
+        world.set_data("last_level_up", {
+            "entity": entity.id,
+            "level": prog.level,
+            "tick": tick,
+        })
+    return int(amount)
 
 
 def facing_from_delta(dx: int, dy: int) -> int:
@@ -202,6 +257,74 @@ class MobAttackSystem(System):
             intents.append({"attacker": mob, "defender": target,
                             "kind": "physical", "power_permille": 1000})
         world.set_data(KEY_INTENTS, intents)
+
+
+class AuctionSystem(System):
+    """拍卖行撮合：每 ``auction.CHECK_TICKS`` 刻结算一轮挂单（P2-S5）。
+
+    priority 6 = 回血之后、战斗之前：撮合只动金币与挂单账本，
+    不碰任何战斗状态，早一刻晚一刻都不影响本刻伤害。
+    放在这批"周期性维护"里，是为了让读代码的人不必去猜它躲在哪。
+
+    ``seed`` 由装配层给，流名 ``auction:{seq}@{round}`` 只含挂单序号与轮次，
+    因此**多挂/少挂一张单不会挪动别的单的随机数位置**——
+    与特戒、幸运 9 是同一条回放纪律。
+    """
+
+    priority = 6
+
+    def __init__(self, seed: int = 0) -> None:
+        self.seed = int(seed)
+
+    def update(self, world: World, dt: float) -> None:
+        tick = int(world.get_data(KEY_TICK, 0))
+        if tick == 0 or tick % auction.CHECK_TICKS:
+            return
+        data = world.get_data("data")
+        if data is None:
+            return
+        bus = world.get_data("bus")
+        for entity in world.each(AuctionBook):
+            if not entity.get(AuctionBook).listings:
+                continue
+            auction.settle(entity, data, seed=self.seed, tick=tick, bus=bus)
+
+
+class MercenarySystem(System):
+    """佣兵到期解散：``Mercenary.until_tick`` 到点就把实体移出场（P2-S6）。
+
+    priority 7 = 战斗（28/30）**之前**：到期的人不该在这一刻还挥一刀。
+    放在这一档的"周期性维护"里，与 ``AuctionSystem`` 同批——两者都只按
+    ``tick`` 判断、都不碰战斗状态，读代码的人不必去猜它躲在哪。
+
+    为什么到点是**直接移除**而不是"留个尸体"：佣兵不是怪物，没有掉落也没有
+    刷新表；留尸体只能靠 ``DeathRewardSystem`` 的 summon 分支清掉——那要等它
+    真的被打死才触发，到期解散根本走不到那条路，尸体就会永远留在场上。
+    """
+
+    priority = 7
+
+    def update(self, world: World, dt: float) -> None:
+        tick = int(world.get_data(KEY_TICK, 0))
+        if tick == 0:
+            return
+        bus = world.get_data("bus")
+        data = world.get_data("data")
+        # 必须先把快照取出来再删：world.each 是**生成器**，直接边遍历边
+        # remove_entity 会 RuntimeError（字典在迭代中被改大小）——实测踩到。
+        for entity in list(world.each(Mercenary)):
+            merc = entity.get(Mercenary)
+            if not merc.expired(tick):
+                continue
+            payload = {
+                "entity": entity.id,
+                "merc_id": merc.merc_id,
+                "name": mercenary.dismiss_name(data, merc.merc_id) if data is not None else merc.merc_id,
+                "tick": tick,
+            }
+            world.remove_entity(entity.id)
+            if bus is not None:
+                bus.emit(EVT_MERC_DISMISS, payload)
 
 
 class RegenSystem(System):
@@ -469,11 +592,7 @@ class DeathRewardSystem(System):
 
             # 召唤物击杀：奖励记到主人头上（随从没背包没钱包，记它身上等于吞掉落）
             if killer is not None:
-                owner_ref = killer.get(SummonOwner)
-                if owner_ref is not None and owner_ref.owner_id is not None:
-                    owner = world.get_entity(owner_ref.owner_id)
-                    if owner is not None:
-                        killer = owner
+                killer = resolve_owner(world, killer)
 
             # 召唤物尸体：没有怪表条目、也不发奖励，但必须清出场，否则越积越多
             if ident is not None and ident.kind == "summon":
@@ -485,20 +604,9 @@ class DeathRewardSystem(System):
             if killer is None or ident is None or ident.kind != "monster" or spec is None:
                 continue
 
-            # 1) 经验
-            prog = killer.get(Progression)
-            if prog is not None:
-                result = add_exp(self.data, prog, int(spec.get("exp", 0)))
-                if result.levels_gained:
-                    class_spec = self.data.classes["classes"][prog.class_id]
-                    apply_growth(killer, class_spec)
-                    # 升级会覆盖面，装备加成必须跟着重算，否则升一级就把武器丢了
-                    recompute(killer, self.data)
-                    world.set_data("last_level_up", {
-                        "entity": killer.id,
-                        "level": prog.level,
-                        "tick": event.get("tick"),
-                    })
+            # 1) 经验（升级三件套在 grant_exp 里一次做完，别在这里手抄一遍）
+            grant_exp(world, self.data, killer, int(spec.get("exp", 0)),
+                      event.get("tick"))
 
             # 2) 掉落（kill_index 从世界状态取，存档后重打不刷）
             counts: dict = world.get_data(KEY_KILL_COUNTS, {})
@@ -527,6 +635,86 @@ class DeathRewardSystem(System):
 
             # 3) 尸体移除（P0 不留尸体）
             world.remove_entity(victim.id)
+
+
+class CodexSystem(System):
+    """图鉴记账：怪物死亡 → 记到归属者名下，首次解锁再发一笔经验（P2-S6）。
+
+    priority 41 = 死亡奖励（40）**之后**：先发该发的掉落，再处理图鉴，
+    这样"这一刀的收益"在逻辑上是完整的一段，图鉴只是顺带记一笔。
+
+    ⚠️ 为什么 ``species`` 与归属要在**事件回调里**取好、而不是等 ``update``：
+    ``DeathRewardSystem`` 在 priority 40 会把尸体 ``remove_entity``，
+    等本系统在 41 跑的时候受害者实体已经没了，``victim_eid`` 也查不到人。
+    回调发生在 ``emit`` 的那一刻（``AttackSystem`` 里），尸体还在场。
+    """
+
+    priority = 41
+
+    def __init__(self, *, data: GameData) -> None:
+        self.data = data
+        self._pending: list[dict] = []
+        self._world: World | None = None
+
+    def bind(self, world: World) -> "CodexSystem":
+        """挂到世界的总线上（由 bootstrap 调用）。"""
+        bus = world.get_data("bus")
+        if bus is not None:
+            bus.subscribe(EVT_DEATH, self._on_death)
+        self._world = world
+        return self
+
+    def _on_death(self, event: dict) -> None:
+        world = self._world
+        if world is None:
+            return
+        victim = world.get_entity(event.get("defender"))
+        if victim is None:
+            return
+        ident = victim.get(Identity)
+        if ident is None or ident.kind != "monster":
+            return
+        if ident.species not in self.data.monsters["monsters"]:
+            return
+        killer = world.get_entity(event.get("attacker"))
+        if killer is None:
+            return
+        killer = resolve_owner(world, killer)
+        self._pending.append({
+            "species": ident.species,
+            "owner": killer.id,
+            "tick": event.get("tick"),
+        })
+
+    def update(self, world: World, dt: float) -> None:
+        if not self._pending:
+            return
+        events, self._pending = self._pending, []
+        for event in events:
+            owner = world.get_entity(event["owner"])
+            if owner is None:
+                continue
+            book = owner.get(Codex)
+            if book is None:
+                continue
+            species = event["species"]
+            if not codex.record_kill(book, species):
+                continue
+            bonus = codex.first_kill_exp(self.data, species)
+            if bonus > 0:
+                grant_exp(world, self.data, owner, bonus, event["tick"])
+            bus = world.get_data("bus")
+            if bus is not None:
+                spec = self.data.monsters["monsters"][species]
+                bus.emit(codex.EVT_UNLOCK, {
+                    "entity": owner.id,
+                    "species": species,
+                    "name": spec.get("name", species),
+                    "exp": bonus,
+                    "unlocked": book.unlocked,
+                    "total": len(self.data.monsters["monsters"]),
+                    "tick": event["tick"],
+                })
 
 
 class RespawnSystem(System):
