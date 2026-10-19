@@ -2,7 +2,7 @@
 
 用法::
 
-    python scripts\\verify.py            # 6 条门禁，全绿退出码 0
+    python scripts\\verify.py            # 8 条门禁，全绿退出码 0
     python scripts\\verify.py --list     # 只列名字与说明
     python scripts\\verify.py --verbose  # 每条的证据
     python scripts\\verify.py --selfcheck  # 给每条注入针对性破坏，证明它拦得住
@@ -28,7 +28,7 @@ DATA_TABLES = ("exp", "classes", "skills", "monsters", "items", "drops", "maps",
 
 
 def gate_data_integrity() -> tuple[bool, str]:
-    """九张数据表的引用完整性（掉落/刷新/技能职业/攻城全部可解析）。"""
+    """八张数据表的引用完整性（掉落/刷新/技能职业/攻城全部可解析）。"""
     from mirsolo.data.loader import GameData
 
     game = GameData.load()
@@ -39,7 +39,7 @@ def gate_data_integrity() -> tuple[bool, str]:
 
 
 def gate_data_files() -> tuple[bool, str]:
-    """data/ 下九张表齐全且是合法 JSON。"""
+    """data/ 下八张表齐全且是合法 JSON。"""
     missing = [f"{name}.json" for name in DATA_TABLES
                if not (ROOT / "data" / f"{name}.json").exists()]
     if missing:
@@ -53,6 +53,59 @@ def gate_data_files() -> tuple[bool, str]:
     if bad:
         return False, "; ".join(bad)
     return True, f"{len(DATA_TABLES)}/{len(DATA_TABLES)} 张表可解析"
+
+
+def gate_luck_sources(data=None) -> tuple[bool, str]:
+    """幸运（幸运 9）的三条口径：来源槽受限、值域受限、**真的能凑到 9**。
+
+    前两条防的是"数据表写错"（给手镯也写上 luck 就等于悄悄新增了一条幸运来源），
+    第三条防的是更阴的那类事故：机制实现了、数据改了，结果玩家怎么搭都到不了 9，
+    "幸运 9 刀刀上限"变成只有文档里存在的功能。
+    """
+    from mirsolo.combat.formulas import LUCK_CAP
+    from mirsolo.data.loader import CLASSES, LUCK_SLOTS
+
+    if data is None:
+        from mirsolo.data.loader import GameData
+
+        data = GameData.load()
+
+    bad_slot, bad_value = [], []
+    for item_id, spec in data.items["items"].items():
+        luck = int(spec.get("luck") or 0)
+        if not luck:
+            continue
+        if spec.get("slot") not in LUCK_SLOTS:
+            bad_slot.append(f"{item_id}({spec.get('slot')})")
+        if not 0 < luck <= LUCK_CAP:
+            bad_value.append(f"{item_id}={luck}")
+
+    if bad_slot:
+        return False, f"幸运只能写在 {LUCK_SLOTS} 上，以下物品越界: {bad_slot}"
+    if bad_value:
+        return False, f"幸运值必须落在 (0, {LUCK_CAP}]，以下越界: {bad_value}"
+
+    # 「能凑到 9」要按**职业**分别算：只对战士开放的幸运武器，帮不了法师和道士。
+    # 不分开算的话，"道士一辈子到不了幸运 9"这种偏科是查不出来的。
+    reach = {}
+    for class_id in CLASSES:
+        best = {"weapon": 0, "necklace": 0}
+        for spec in data.items["items"].values():
+            slot = spec.get("slot")
+            if slot not in best:
+                continue
+            allowed = spec.get("class") or []
+            if allowed and class_id not in allowed:
+                continue
+            best[slot] = max(best[slot], int(spec.get("luck") or 0))
+        reach[class_id] = best["weapon"] + best["necklace"]
+
+    starving = [f"{cid} 只能凑到 {got}" for cid, got in sorted(reach.items())
+                if got < LUCK_CAP]
+    if starving:
+        return False, f"幸运 {LUCK_CAP} 不可达——{'；'.join(starving)}"
+    return True, ("三职业都能凑到幸运 9（武器/项链最高搭配："
+                  + "，".join(f"{cid} {reach[cid]}" for cid in CLASSES) + "）")
 
 
 def gate_tests_registered() -> tuple[bool, str]:
@@ -220,9 +273,10 @@ def gate_map_bands(data=None) -> tuple[bool, str]:
 
 
 GATES = [
-    ("data-integrity", "九张数据表的引用完整性（掉落/刷新/技能职业/攻城可解析）", gate_data_integrity),
-    ("data-files", "data/ 下九张表齐全且是合法 JSON", gate_data_files),
+    ("data-integrity", "八张数据表的引用完整性（掉落/刷新/技能职业/攻城可解析）", gate_data_integrity),
+    ("data-files", "data/ 下八张表齐全且是合法 JSON", gate_data_files),
     ("map-bands", "地图等级带连续且传送图全连通", gate_map_bands),
+    ("luck-sources", "幸运只来自武器/项链、值域合规、三职业都凑得到 9", gate_luck_sources),
     ("tests-registered", "run_tests.MODULES ↔ tests/test_*.py 双向一致", gate_tests_registered),
     ("readme-commands", "README 里的 python -m 目标都真实可导入", gate_readme_commands),
     ("readme-tree-real", "README 项目结构里的路径都真实存在", gate_tree_real),
@@ -303,6 +357,31 @@ def _selfcheck() -> int:
     else:
         failures += 1
         print("  FAIL map-bands 未拦住传送网断开")
+
+    # 6) luck-sources：把幸运写到衣服上 —— 来源槽放开就等于悄悄新增幸运来源
+    luck_item = game.items["items"]["buyi"]
+    luck_item["luck"] = 3
+    ok, detail = gate_luck_sources(game)
+    del luck_item["luck"]
+    if not ok and "越界" in detail:
+        print("  ok   luck-sources 能拦住写在武器/项链以外的幸运")
+    else:
+        failures += 1
+        print("  FAIL luck-sources 未拦住非武器/项链槽上的幸运")
+
+    # 7) luck-sources 的另一半：把项链幸运全清空，必须报"到不了 9"
+    stashed = [(spec, spec["luck"]) for spec in game.items["items"].values()
+               if spec.get("slot") == "necklace" and spec.get("luck")]
+    for spec, _value in stashed:
+        spec["luck"] = 0
+    ok, detail = gate_luck_sources(game)
+    for spec, value in stashed:
+        spec["luck"] = value
+    if not ok and "不可达" in detail:
+        print("  ok   luck-sources 能拦住凑不到幸运 9 的数据（机制不能只活在文档里）")
+    else:
+        failures += 1
+        print("  FAIL luck-sources 未拦住凑不到幸运 9 的数据")
 
     print(f"\nselfcheck: {'PASS' if failures == 0 else f'{failures} 条门禁形同虚设'}")
     return 0 if failures == 0 else 1

@@ -151,6 +151,7 @@ class CombatResolver:
             agility=def_attr.agility,
             rng=rng,
             power_permille=power_permille,
+            luck=atk_attr.luck,
         )
         self._apply(attacker, defender, outcome, "physical")
         return outcome
@@ -170,6 +171,7 @@ class CombatResolver:
             rng=rng,
             power_permille=power_permille,
             ignore_mac=ignore_mac,
+            luck=atk_attr.luck,
         )
         self._apply(attacker, defender, outcome, "magic")
         return outcome
@@ -188,6 +190,7 @@ class CombatResolver:
             rng=rng,
             power_permille=power_permille,
             ignore_mac=ignore_mac,
+            luck=atk_attr.luck,
         )
         self._apply(attacker, defender, outcome, "taoist")
         return outcome

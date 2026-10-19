@@ -37,6 +37,10 @@ SLOTS = ("weapon", "armor", "helmet", "necklace", "bracelet", "ring", "candle")
 #: 允许的职业 id
 CLASSES = ("warrior", "mage", "taoist")
 
+#: 幸运的合法来源槽位（传奇口径：只有武器与项链带幸运，合计封顶 9）
+#: 数据表若给别的槽写 ``luck``，``scripts/verify.py`` 的 ``luck-sources`` 门禁会红。
+LUCK_SLOTS = ("weapon", "necklace")
+
 #: 物品大类：装备 / 技能书（P1-S2 起；消耗品待 P2 药水批次）
 ITEM_KINDS = frozenset({"equip", "book"})
 

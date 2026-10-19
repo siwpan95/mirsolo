@@ -91,7 +91,11 @@ class Attributes(Component):
     mac: tuple[int, int] = (0, 0)  # 魔御
     accuracy: int = 5              # 准确
     agility: int = 5               # 敏捷
-    luck: int = 0                  # 幸运（P2 起参与上限触发）
+    #: 幸运：来自**武器 + 项链**两个槽，由 ``equipment.recompute`` 求和并钳到
+    #: ``formulas.LUCK_CAP``（9）。9 点 = 刀刀打上限。
+    #: ⚠️ 这个值**不是**一级加成属性，它只在结算时收窄 roll 区间——
+    #: 想改实际口径请去 ``formulas.lucky_range``，别在这里加开关。
+    luck: int = 0
 
 
 @dataclass

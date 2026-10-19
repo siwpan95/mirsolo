@@ -74,6 +74,36 @@ INJECTIONS = [
      '"name": "赤月魔蛛",\n      "level": 50,',
      '"name": "赤月魔蛛",\n      "level": 15,',
      "tests.test_data"),
+    ("幸运收窄失效（lucky_range 原样返回，幸运 9 不出刀刀上限）",
+     ROOT / "mirsolo/combat/formulas.py",
+     "    luck = clamp_luck(luck)\n    if luck <= 0:\n        return (lo, hi)\n"
+     "    return (hi - (hi - lo) * (LUCK_CAP - luck) // LUCK_CAP, hi)",
+     "    luck = clamp_luck(luck)\n    if luck <= 0 or True:\n        return (lo, hi)\n"
+     "    return (hi - (hi - lo) * (LUCK_CAP - luck) // LUCK_CAP, hi)",
+     "tests.test_luck"),
+    ("幸运改成每点掷一次 lucky（随机数个数随幸运变化）",
+     ROOT / "mirsolo/combat/formulas.py",
+     "    luck = clamp_luck(luck)\n    outcome = AttackOutcome()",
+     "    luck = clamp_luck(luck)\n"
+     "    _dummy = rng.rand_int(1, 1000) if luck else 0\n    outcome = AttackOutcome()",
+     "tests.test_luck"),
+    ("resolver 不把幸运递给公式（三职业幸运装等于没穿）",
+     ROOT / "mirsolo/combat/resolver.py",
+     "            power_permille=power_permille,\n            luck=atk_attr.luck,",
+     "            power_permille=power_permille,",
+     "tests.test_luck"),
+    ("recompute 不写 Attributes.luck（装备有幸运、实际不生效）",
+     ROOT / "mirsolo/items/equipment.py",
+     "    attr.luck = clamp_luck(luck)",
+     "    attr.luck = 0",
+     "tests.test_luck"),
+    ("幸运改成概率打上限（每刀多一次掷点，回放错位）",
+     ROOT / "mirsolo/combat/formulas.py",
+     "    atk_lo, atk_hi = lucky_range(dc, luck)\n    atk = roll_damage_range((atk_lo, atk_hi), rng)",
+     "    atk_lo, atk_hi = lucky_range(dc, luck)\n"
+     "    atk = atk_hi if (luck and rng.rand_int(1, LUCK_CAP) <= luck) else "
+     "roll_damage_range((atk_lo, atk_hi), rng)",
+     "tests.test_luck"),
 ]
 
 

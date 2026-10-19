@@ -542,7 +542,8 @@
       "level_req": 48,
       "price": 26000,
       "tier": "rare",
-      "kind": "equip"
+      "kind": "equip",
+      "luck": 7
     },
     "chiyue_mozhang": {
       "name": "赤月魔杖",
@@ -564,7 +565,8 @@
       "level_req": 48,
       "price": 26000,
       "tier": "rare",
-      "kind": "equip"
+      "kind": "equip",
+      "luck": 7
     },
     "chiyue_daojian": {
       "name": "赤月道剑",
@@ -586,7 +588,8 @@
       "level_req": 48,
       "price": 26000,
       "tier": "rare",
-      "kind": "equip"
+      "kind": "equip",
+      "luck": 7
     },
     "chiyue_zhanjia": {
       "name": "赤月战甲",
@@ -635,7 +638,8 @@
       "level_req": 50,
       "price": 42000,
       "tier": "rare",
-      "kind": "equip"
+      "kind": "equip",
+      "luck": 7
     },
     "niumo_toukui": {
       "name": "牛魔头盔",
@@ -663,6 +667,62 @@
       "price": 20000,
       "tier": "rare",
       "kind": "equip"
+    },
+    "zhufu_xianglian": {
+      "name": "祝福项链",
+      "slot": "necklace",
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        0,
+        1
+      ],
+      "mac": [
+        1,
+        2
+      ],
+      "accuracy": 0,
+      "weight": 2,
+      "durability": 15,
+      "level_req": 33,
+      "price": 26000,
+      "tier": "rare",
+      "kind": "equip",
+      "luck": 1
+    },
+    "xingyun_xianglian": {
+      "name": "幸运项链",
+      "slot": "necklace",
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        1,
+        2
+      ],
+      "mac": [
+        2,
+        3
+      ],
+      "accuracy": 0,
+      "weight": 2,
+      "durability": 18,
+      "level_req": 44,
+      "price": 88000,
+      "tier": "rare",
+      "kind": "equip",
+      "luck": 2
     }
   }
 }

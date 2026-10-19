@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from allin_engine import Entity
 
+from mirsolo.combat.formulas import clamp_luck
 from mirsolo.components import (
     Attributes,
     Bag,
@@ -128,6 +129,9 @@ def recompute(entity: Entity, data: GameData) -> None:
     slots = loadout.slots if loadout is not None else {}
     dc, mc, sc, ac, mac = base["dc"], base["mc"], base["sc"], base["ac"], base["mac"]
     accuracy = int(base["accuracy"])
+    # 幸运：只有 weapon / necklace 两个槽会给（由 verify.py 的 luck-sources 门禁保证），
+    # 所以这里可以放心地把**所有槽**的 luck 加起来——加错了门禁会先红。
+    luck = 0
     gear_weight = 0
     for item_id in slots.values():
         spec = data.items["items"].get(item_id)
@@ -140,10 +144,15 @@ def recompute(entity: Entity, data: GameData) -> None:
         ac = _add_range(ac, spec.get("ac"))
         mac = _add_range(mac, spec.get("mac"))
         accuracy += int(spec.get("accuracy", 0) or 0)
+        luck += int(spec.get("luck", 0) or 0)
 
+    # 幸运在这里**只汇总、不生效**：真正消费它的是 ``formulas.lucky_range``。
+    # 两者中间隔着 resolver，所以这条赋值被摘掉时必须有集成测试变红
+    #（``tests/test_luck.py::test_resolver_feeds_luck_into_physical``）。
     attr.dc, attr.mc, attr.sc, attr.ac, attr.mac = dc, mc, sc, ac, mac
     attr.accuracy = accuracy
     attr.agility = int(base["agility"])
+    attr.luck = clamp_luck(luck)
     if body is not None:
         body.max_weight = int(base["max_weight"])
         body.weight = gear_weight

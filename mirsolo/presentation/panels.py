@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 
 from allin_engine import Entity
 
+from mirsolo.combat.formulas import LUCK_CAP
 from mirsolo.components import (
     Attributes,
     Bag,
@@ -173,6 +174,10 @@ def _stat_hint(spec: dict) -> str:
             parts.append(f"{label} {value[0]}-{value[1]}")
     if spec.get("accuracy"):
         parts.append(f"准确 +{spec['accuracy']}")
+    if spec.get("luck"):
+        # 幸运单独列出而不并入"无加成"：它是 P2-S3 的核心机制，
+        # 看不见的话玩家很难理解"为什么同样的刀有时刀刀上限"
+        parts.append(f"幸运 +{spec['luck']}")
     return "　".join(parts) or "无加成"
 
 
@@ -234,7 +239,9 @@ def build_character_panel(*, player: Entity, data: GameData,
         lines = [
             f"等级 {prog.level}　金币 {wallet.gold if wallet else 0}",
             f"攻 {attr.dc[0]}-{attr.dc[1]}　魔 {attr.mc[0]}-{attr.mc[1]}　道 {attr.sc[0]}-{attr.sc[1]}",
-            f"防 {attr.ac[0]}-{attr.ac[1]}　魔御 {attr.mac[0]}-{attr.mac[1]}　准确 {attr.accuracy}　敏捷 {attr.agility}",
+            f"防 {attr.ac[0]}-{attr.ac[1]}　魔御 {attr.mac[0]}-{attr.mac[1]}",
+            f"准确 {attr.accuracy}　敏捷 {attr.agility}　幸运 {attr.luck}"
+            + ("（刀刀上限）" if attr.luck >= LUCK_CAP else ""),
         ]
         if vitals is not None:
             lines.append(f"气血 {vitals.hp}/{vitals.max_hp}　魔法 {vitals.mp}/{vitals.max_mp}")

@@ -31,7 +31,7 @@ def test_shipped_data_is_clean():
 
 @case
 def test_seven_tables_are_present():
-    """结构表必须齐全（P2 加了第九张 ``sieges``，这里是按名字点验不是按数量）。"""
+    """结构表必须齐全（P2 加了 ``sieges``，这里是按名字点验不是按数量）。"""
     for name in ("exp", "classes", "skills", "monsters", "items", "drops", "maps", "sieges"):
         table = getattr(DATA, name)
         assert isinstance(table, dict) and table, f"{name}.json 为空"

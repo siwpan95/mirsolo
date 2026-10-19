@@ -449,6 +449,19 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 600,
+          "entries": [
+            {
+              "item": "zhufu_xianglian",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         }
       ]
     },
@@ -619,6 +632,27 @@
             {
               "item": "book_huoqiang",
               "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 400,
+          "entries": [
+            {
+              "item": "zhufu_xianglian",
+              "permille": 6000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "xingyun_xianglian",
+              "permille": 4000,
               "count": [
                 1,
                 1
@@ -836,6 +870,19 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 500,
+          "entries": [
+            {
+              "item": "xingyun_xianglian",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         }
       ]
     },
@@ -1039,6 +1086,19 @@
             {
               "item": "book_zhaohuanshen",
               "permille": 2000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 900,
+          "entries": [
+            {
+              "item": "xingyun_xianglian",
+              "permille": 10000,
               "count": [
                 1,
                 1

@@ -71,25 +71,26 @@ mirsolo/
       renderer.py       pyglet 2.1 ShaderProgram 渲染（地面网格 1 draw / 实例 1 draw）
       app.py            窗口、输入（WASD/空格/滚轮/鼠标点面板）与固定步长循环
     data/
-      loader.py         九张表加载 + 结构校验 + 引用校验
+      loader.py         八张表加载 + 结构校验 + 引用校验
     cli/
       smoke.py          headless 冒烟（10Hz 定步推演）
       play.py           进游戏窗口（--shot 单帧截图，无 GL 时给出可操作提示）
-  data/                 九张数值表（手录，1.76 骨架口径）
+  data/                 八张数值表（手录，1.76 骨架口径）
     exp.json            1-52 级经验曲线（1-50 为国服 1.76 口径，50-52 外推，见文档）
     classes.json        三职业基础属性与成长（含 mc/sc）
     skills.json         技能表（三职业 16 技 + 技能书；P1-S2 起全部 kind 有行为）
     monsters.json       怪物表（23 种，AI 三档：passive/aggressive/elite）
-    items.json          装备 14 件（含 P2 赤月/牛魔终局 6 件）+ 技能书 16 本
+    items.json          装备 16 件（含 P2 赤月/牛魔终局 6 件 + 幸运项链 2 条）+ 技能书 16 本
     drops.json          掉落表（组权重 + gold 区间）
     maps.json           地图与刷新/传送表（11 张，等级带 1-52 连续，含战役图 sabak）
     sieges.json         攻城战役表（波次/目标/守军/增援/奖励）
   docs/
     数据口径.md          逐表来源、近似标记与已知差异
     借鉴记账.md          借鉴对象 / 许可证 / 范围 / 禁区
-  scripts/verify.py     7 条机械门禁（含 --selfcheck 注入破坏自检）
+  scripts/verify.py     8 条机械门禁（含 --selfcheck 注入破坏自检）
+  scripts/extend_p2_luck.py  幂等写幸运数据（终局武器 luck 7 + 两条幸运项链）
   scripts/inject_check.py  注入验证：把生产代码改坏，确认回归真的会红
-  tests/run_tests.py    测试聚合 runner（14 模块）
+  tests/run_tests.py    测试聚合 runner（15 模块）
 ```
 
 ## 设计要点
@@ -116,14 +117,20 @@ mirsolo/
 波次/目标耐久/守军数/剩余时间。摆摊经济改为商店 + 市场模拟，
 抢 BOSS 改为确定性种子世界（掉落熵进存档）。完整转化表见计划书。
 
+**6. 幸运 9 = 把 roll 区间的下限抬到上限。** 传奇的"幸运 9 刀刀上限"在实现上
+不是"概率打出上限"，而是 `hi − (hi−lo)×(9−luck)//9` 收窄 roll 区间：luck 0 与裸装
+逐位一致，luck 9 塌成单点。这样每刀消耗的随机数个数在 0..8 之间完全一致
+（随机流不会因为换装备而错位），代价是两个端点之外的取值仍是线性近似，
+标记为 `CALIBRATE`（详见 `docs/数据口径.md` 的《幸运 9》一节）。
+
 ## 测试与验收
 
 ```bat
-python -m tests.run_tests              :: 14 个模块，189 项无窗口单测
+python -m tests.run_tests              :: 15 个模块，206 项无窗口单测
 python -m mirsolo.cli.smoke --ticks 3000   :: headless 冒烟（含确定性复跑）
 python -m mirsolo.cli.play --level 50 --gear --siege sabak --shot shots\siege.png
                                        :: 攻城验收：开窗即开战，顶部战役状态条
-python scripts\verify.py               :: 7 条机械门禁（<1 秒）
+python scripts\verify.py               :: 8 条机械门禁（<1 秒）
 python scripts\verify.py --list        :: 只看门禁清单
 python scripts\verify.py --verbose     :: 每条门禁的证据
 python scripts\verify.py --selfcheck   :: 注入破坏，证明门禁拦得住
@@ -134,11 +141,12 @@ python scripts\verify.py --selfcheck   :: 注入破坏，证明门禁拦得住
 | 门禁 | 断言 |
 |------|------|
 | `data-integrity` | 掉落/刷新/技能职业/攻城引用全部可解析，无死链 |
-| `data-files` | 九张表齐全且是合法 JSON |
+| `data-files` | 八张表齐全且是合法 JSON |
 | `map-bands` | 等级带连续 + 传送网有向全连通（战役图除外，但必须声明 `base_map`） |
 | `tests-registered` | `run_tests.MODULES` ↔ `tests/test_*.py` **双向**一致 |
 | `readme-commands` | README 里每条 `python -m` 目标都真实可导入 |
 | `readme-tree-real` | README 项目结构里的路径都真实存在 |
+| `luck-sources` | 幸运只来自武器/项链、值域合规、且**三个职业各自**都凑得到 9 |
 | `package-imports` | `mirsolo/` 下每个模块都能 import |
 
 ## 路线图
@@ -147,7 +155,7 @@ python scripts\verify.py --selfcheck   :: 注入破坏，证明门禁拦得住
 |------|------|------|
 | P0 | 战士垂直切片：比奇省外围 + 矿洞、6 怪、8 装、练到 20 级 | 逻辑核 ✅ / 表现层 ✅ |
 | P1 | 三职业全技能、地图带（蜈蚣洞→祖玛）、沃玛/祖玛 BOSS、商店仓库、技能熟练度 | ✅ |
-| P2 | 沙巴克攻城战役、赤月/牛魔、特戒与运 9、拍卖行、佣兵与图鉴 | 攻城 ✅ / 其余 ⬜ |
+| P2 | 沙巴克攻城战役、赤月/牛魔、特戒与运 9、拍卖行、佣兵与图鉴 | 攻城 ✅ / 赤月牛魔 ✅ / 运 9 ✅ / 其余 ⬜ |
 
 ## 许可
 
