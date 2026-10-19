@@ -163,6 +163,25 @@ class Wear(Component):
 
 
 @dataclass
+class DeathLedger(Component):
+    """死亡账本：**跨次数、跨读档**的累计记账（P3-S2）。
+
+    为什么必须是独立组件，不能挂在 :class:`Progression` 上：读档时
+    ``Progression`` 会被存档里的等级/经验**整个覆盖**，跟着覆盖就等于
+    "死了 → 读档 → 惩罚撤销"。挂在本组件上、累计量**只增不减**，
+    存档读写层沿用它，于是"死了读档重来"这条路洗不掉代价。
+
+    这里只记**累计流水**（死了几次、一共掉了多少经验/金币/物品），
+    不记"现在还剩多少"——后者是别的组件的事，重复存一份迟早分叉。
+    """
+
+    count: int = 0
+    exp_lost: int = 0
+    gold_lost: int = 0
+    items_lost: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
 class Bag(Component):
     """背包：``item_id -> 数量`` 的有序字典（P0 不做堆叠上限）。"""
 
@@ -274,6 +293,23 @@ class Invisible(Component):
     """隐身：怪物在 ``until_tick`` 之前看不到该实体；主动出手即破。"""
 
     until_tick: int = -1
+
+
+@dataclass
+class Downed(Component):
+    """倒地：HP 归零、**还没结算**的状态（P3-S2）。
+
+    为什么要这个状态而不是"死了立刻扣完再复活"：原地付费复活的卖点是
+    "少掉点东西"，若死亡瞬间就把经验金币扣光，原地复活就得**退款**——
+    退多少、掉出去的物品怎么吐回来，会引出一大堆说不清的账。
+    所以惩罚推迟到"玩家做出选择"那一刻才算，两档各算各的，没有退款。
+
+    倒地期间：HP 保持 0，怪物不再索敌/攻击（``Vitals.alive`` 已经拦住了），
+    玩家也不能出手。``revive_at`` 到了还没选，就自动走**回城**那一档。
+    """
+
+    at_tick: int = 0
+    revive_at: int = 0
 
 
 @dataclass

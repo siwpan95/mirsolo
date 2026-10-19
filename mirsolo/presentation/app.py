@@ -24,10 +24,13 @@ from pyglet import shapes
 from pyglet.text import Label
 
 from mirsolo.bootstrap import GameSession, build_session, populate
+from mirsolo.determinism import Rng
+from mirsolo.combat.resolver import EVT_DEATH
 from mirsolo.components import (
     Bag,
     Codex,
     Cooldowns,
+    Downed,
     Identity,
     Loadout,
     Position,
@@ -38,7 +41,7 @@ from mirsolo.components import (
     Wallet,
     Wear,
 )
-from mirsolo.actor import codex, mercenary
+from mirsolo.actor import codex, mercenary, penalty
 from mirsolo.economy import auction
 from mirsolo.economy.shop import (
     TradeError,
@@ -86,6 +89,10 @@ SKILL_KEYS = (
 #: 特戒指动键（传送戒指）。与技能键一样按一次发动一次，长按不连发
 RING_KEY = pyglet.window.key.T
 
+#: 原地复活键。刻意不用 V——V 已经是仓库面板的开关；
+#: 同一个键在站立/倒地两种状态下含义不同，迟早按错。
+REVIVE_KEY = pyglet.window.key.R
+
 #: 面板开关键 → 面板名。放在这里而不是散在 if 里：加面板只改这张表
 PANEL_KEYS = {
     pyglet.window.key.C: "character",
@@ -104,6 +111,13 @@ RING_ERRORS = {
     "same_map": "已经在这张图了",
     "cooling": "冷却中",
     "dead": "死亡状态不能传送",
+}
+
+#: 复活的拒绝码 → 玩家能看懂的话。``no_gold`` 不在表里——它的文案含
+#: 动态数字（还差多少金），直接把异常消息上屏更准
+REVIVE_ERRORS = {
+    "not_downed": "还没倒下，不用复活",
+    "missing_components": "角色数据不完整，无法复活",
 }
 
 #: 拒绝码 → 玩家能看懂的话。码本身是给测试断言用的，不能直接上屏
@@ -300,6 +314,9 @@ class MirsoloWindow(pyglet.window.Window):
         if symbol == RING_KEY:
             self._use_ring()
             return
+        if symbol == REVIVE_KEY:
+            self._revive_in_place()
+            return
         # 技能栏 1..5（数字键与数字小键盘都收）：按一次放一次，
         # 长按不连发——连发交给冷却门控反而会让节奏变乱。
         if symbol in SKILL_KEYS:
@@ -424,6 +441,32 @@ class MirsoloWindow(pyglet.window.Window):
             return
         self._on_map_changed(result)
 
+    def _revive_in_place(self) -> None:
+        """原地复活（``R`` 键）：花金币、位置不动，免掉经验/金币/掉物三件惩罚。
+
+        规则全在 ``actor.penalty``，这里只翻译拒绝码——与买卖穿脱、特戒同一条
+        纪律：窗口层不做 judging。
+
+        金币不够时**不做赊账**：金币一旦允许为负，商店回收价与拍卖行底价全都得
+        跟着处理负数，代价远大于收益。玩家等几秒自动回城即可。
+        """
+        player = self.session.world.get_entity("player")
+        if player is None:
+            return
+        data = self.session.data
+        try:
+            tick = int(self.session.tick)
+            rng = Rng(self.session.seed, f"death:{player.id}@{tick}")
+            got = penalty.settle(data, player, rng=rng, tick=tick,
+                                 in_place=True)
+        except penalty.PenaltyError as exc:
+            if exc.code == "no_gold":
+                self._say(str(exc))
+            else:
+                self._say(f"复活：{REVIVE_ERRORS.get(exc.code, exc.code)}")
+            return
+        self._say(f"原地复活 -{got['paid']} 金（经验与背包都没掉）")
+
     # ── 输入 → 意图 ─────────────────────────────────
 
     def _collect_intent(self) -> tuple[int, int]:
@@ -481,8 +524,8 @@ class MirsoloWindow(pyglet.window.Window):
         skill_id = order[index]
         spec = self.session.data.skills["skills"][skill_id]
         player = self.session.world.get_entity("player")
-        if player is None:
-            return
+        if player is None or player.has(Downed):
+            return  # 倒地期间放不了技能
         # 自身类（护盾/隐身/召唤）不需要目标；治疗类单机先自疗；攻击类找最近敌人
         kind = spec["kind"]
         if kind in SELF_KINDS:
@@ -502,14 +545,18 @@ class MirsoloWindow(pyglet.window.Window):
     def tick(self, real_dt: float) -> None:
         """推进逻辑 + 采集输入（由 :meth:`run` 或 pyglet 时钟调用）。"""
         self._last_real_dt = min(0.25, max(0.0, real_dt))
-        self.session.world.set_data("move_intent", self._collect_intent())
-        if pyglet.window.key.SPACE in self.pressed:
+        player = self.session.world.get_entity("player")
+        # 倒地期间一律不收操作：躺着还能走、还能砍的话，
+        # 整条死亡惩罚就退化成血少了一点而已
+        stalled = player is not None and player.has(Downed)
+        self.session.world.set_data(
+            "move_intent", (0, 0) if stalled else self._collect_intent())
+        if pyglet.window.key.SPACE in self.pressed and not stalled:
             target = self._target_in_range()
             if target is not None:
                 self.session.queue_attack(self.session.world.get_entity("player"), target)
         self.session.engine.advance(self._last_real_dt)
 
-        player = self.session.world.get_entity("player")
         if player is not None:
             pos = player.get(Position)
             self.camera.follow(pos.x, pos.y + 1.0)
@@ -602,6 +649,31 @@ class MirsoloWindow(pyglet.window.Window):
                 f"{slot.name} Lv{slot.proficiency}", x=rect.x + 20, y=rect.y + 7,
                 font_size=10, font_name=FONT,
                 color=(225, 230, 238, 255) if slot.ready else (150, 140, 140, 255)))
+
+        # 倒地横幅：不画出来玩家只会以为血空了，不知道自己在等什么、能按什么。
+        # 剩余时间从 revive_at 倒着数（向上取整成秒），玩家读的是秒不是刻。
+        if player.has(Downed):
+            downed = player.get(Downed)
+            tick = int(self.session.tick)
+            left = max(0, int(downed.revive_at) - tick)
+            cost = penalty.revive_cost(player.get(Progression))
+            banner_w, banner_h = 420.0, 48.0
+            bx = (self.width - banner_w) / 2
+            by = self.height * 0.62
+            self._hud_shapes.append(shapes.Rectangle(
+                bx, by, banner_w, banner_h, color=(30, 12, 12, 235)))
+            self._hud_shapes.append(shapes.Box(
+                bx, by, banner_w, banner_h, thickness=2.0,
+                color=(190, 70, 60, 255)))
+            self._hud_labels.append(Label(
+                "你倒下了", x=self.width / 2, y=by + banner_h - 22,
+                font_size=15, font_name=FONT, anchor_x="center",
+                color=(255, 210, 200, 255)))
+            secs = (left + 9) // 10
+            self._hud_labels.append(Label(
+                f"按 R 原地复活（{cost} 金）  ·  {secs} 秒后自动回城",
+                x=self.width / 2, y=by + 9, font_size=11, font_name=FONT,
+                anchor_x="center", color=(235, 235, 235, 255)))
 
         # 攻城状态条：只有战役进行中才有（打完了立刻消失，不留空框）
         banner = layout.siege
@@ -787,7 +859,8 @@ def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
                       learn_all: bool = False, gear: bool = False,
                       gold: int = 0, mercs: tuple[str, ...] = (),
                       codex_kills: int = 0, bag: bool = False,
-                      wear_left: int | None = None) -> None:
+                      wear_left: int | None = None,
+                      dead: bool = False) -> None:
     """验收辅助：提等级 / 发金币 / 发一套装备 / 雇佣兵 / 记图鉴。
 
     刻意**复用游戏内路径**（``apply_growth`` + ``learn`` + ``equip`` + ``hire`` +
@@ -834,6 +907,19 @@ def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
             left = max(0, min(total, total * int(wear_left) // 1000))
             wear.add_wear(session.data, book, item_id, total - left)
         recompute(player, session.data)
+    if dead:
+        # 验收开关：只负责致死那一下；倒地 → 结算 → 复活全在
+        # ``DeathPenaltySystem`` + ``actor.penalty`` 里，避免两套实现分叉
+        vitals = player.get(Vitals)
+        if vitals is not None:
+            vitals.hp = 0
+            bus = session.world.get_data("bus")
+            if bus is not None:
+                bus.emit(EVT_DEATH, {
+                    "attacker": None, "defender": player.id,
+                    "killer_eid": None, "victim_eid": player.eid,
+                    "tick": int(session.tick),
+                })
     for merc_id in mercs:
         try:
             mercenary.hire(session.world, session.data, player, merc_id, tick=0)
@@ -863,7 +949,8 @@ def launch(*, seed: int = 20261019, map_id: str = "biqi_field",
            panel: str | None = None, siege: str | None = None,
            gold: int = 0, mercs: tuple[str, ...] = (),
            codex_kills: int = 0, bag: bool = False,
-           wear_left: int | None = None) -> None:
+           wear_left: int | None = None,
+           dead: bool = False) -> None:
     """装配会话 + 开窗（CLI 与测试共用入口）。
 
     ``panel`` 只用于验收截图：开窗时就打开某个面板（``character``/``mercenary``/
@@ -878,7 +965,8 @@ def launch(*, seed: int = 20261019, map_id: str = "biqi_field",
     populate(session, player_class=player_class)
     prepare_character(session, class_id=player_class, level=level,
                       learn_all=learn, gear=gear, gold=gold, mercs=mercs,
-                      codex_kills=codex_kills, bag=bag, wear_left=wear_left)
+                      codex_kills=codex_kills, bag=bag, wear_left=wear_left,
+                      dead=dead)
     if siege is not None:
         start_siege(session, siege)
     window = MirsoloWindow(session=session, width=width, height=height)

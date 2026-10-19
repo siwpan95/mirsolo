@@ -17,6 +17,7 @@
 | 30 | ``AttackSystem`` | 消费攻击意图队列 → 调 ``CombatResolver`` 结算 |
 | 40 | ``DeathRewardSystem`` | 结算死亡奖励：经验 + 掉落 + 金币 |
 | 41 | ``CodexSystem`` | 图鉴记账 + 首次解锁奖励（订阅死亡事件） |
+| 42 | ``DeathPenaltySystem`` | 玩家倒地 → 结算死亡惩罚 → 复活（回城/原地） |
 | 90 | ``RespawnSystem`` | 按地图刷新表补刷（P0 用固定 tick 间隔） |
 
 **意图队列**是这一层的核心设计：AI/输入只往 ``world.get_data("attack_intents")``
@@ -37,6 +38,8 @@ from mirsolo.components import (
     Bag,
     Codex,
     Cooldowns,
+    DeathLedger,
+    Downed,
     Identity,
     Invisible,
     Loadout,
@@ -51,7 +54,7 @@ from mirsolo.components import (
     Wallet,
     Wear,
 )
-from mirsolo.actor import codex, mercenary
+from mirsolo.actor import codex, mercenary, penalty
 from mirsolo.determinism import Rng
 from mirsolo.economy import auction
 from mirsolo.items import rings
@@ -65,6 +68,10 @@ KEY_INTENTS = "attack_intents"
 KEY_KILL_COUNTS = "kill_counts"
 KEY_REWARDS = "reward_queue"
 KEY_MOVE_INTENT = "move_intent"
+#: 玩家刚倒地、正等着决定怎么起来（表现层靠它弹"按 R"提示）
+KEY_DOWNED = "last_down"
+#: 上一次死亡的结算结果（经验/金币/物品/磨损），表现层弹提示用
+KEY_LAST_DEATH = "last_death"
 
 #: 佣兵到期离队（字符串与 ``mercenary.EVT_DISMISS`` 同一个，这里导入避免系统与规则层互相 import）
 EVT_MERC_DISMISS = mercenary.EVT_DISMISS
@@ -246,6 +253,12 @@ class MobAttackSystem(System):
                 continue  # 定身期间不还手（意图压根不入队，见 AttackSystem 注释）
             target = world.get_entity(state.target_id)
             if target is None:
+                continue
+            tvitals = target.get(Vitals)
+            # 目标已经倒地（玩家等着被复活）就不再排队出刀：否则怪物会围着
+            # 尸体一直挥，伤害流水被搅乱，复活之后也可能被残留意图再打一下
+            if tvitals is not None and not tvitals.alive:
+                state.target_id = None
                 continue
             tpos = target.get(Position)
             pos = mob.get(Position)
@@ -795,3 +808,77 @@ class RespawnSystem(System):
                 from mirsolo.actor.factory import spawn_monster
 
                 spawn_monster(world, self.data, monster_id, x=float(x), y=float(y))
+
+
+class DeathPenaltySystem(System):
+    """死亡惩罚：玩家倒地 → 结算惩罚 → 复活（P3-S2）。
+
+    priority 42 = 图鉴（41）**之后**：死亡奖励（40）与图鉴（41）都只认
+    ``kind == "monster"``，玩家死不走那两条路；但把它排在这一串的最后，
+    "死一次"这件事的所有副作用在代码里就是连着的一段，不用跳着看。
+
+    为什么也订阅事件而不是每帧扫血量：与 ``DeathRewardSystem`` 同一个理由——
+    死亡是**一次性事件**，靠事件保证只结算一次，也避免两个系统各自轮询血量、
+    互相猜测对方有没有处理过。
+
+    ⚠️ 惩罚是**延迟结算**的：致死那一下只让人倒地，真正的扣减发生在
+    玩家选择复活方式（或等满 ``DOWN_TICKS`` 自动回城）的那一刻。
+    理由见 ``mirsolo/actor/penalty.py`` 的模块 docstring。
+    """
+
+    priority = 42
+
+    def __init__(self, *, data, seed: int) -> None:
+        self.data = data
+        self.seed = seed
+        self._pending: list[dict] = []
+
+    def bind(self, world: World) -> "DeathPenaltySystem":
+        """挂到世界的总线上（由 bootstrap 调用）。"""
+        bus = world.get_data("bus")
+        if bus is not None:
+            bus.subscribe(EVT_DEATH, self._on_death)
+        self._world = world
+        return self
+
+    def _on_death(self, event: dict) -> None:
+        self._pending.append(event)
+
+    def update(self, world: World, dt: float) -> None:
+        tick = int(world.get_data(KEY_TICK, 0))
+
+        # 1) 新死的人 → 倒地（等玩家选怎么起来）
+        if self._pending:
+            events, self._pending = self._pending, []
+            for event in events:
+                victim = world.get_entity(event.get("defender"))
+                if victim is None:
+                    continue
+                ident = victim.get(Identity)
+                # 只有玩家会倒地：怪物尸体由 DeathRewardSystem 直接清出场
+                if ident is None or ident.kind != "player":
+                    continue
+                if victim.has(Downed):
+                    continue
+                penalty.knock_down(victim, tick)
+                world.set_data(KEY_DOWNED, {
+                    "entity": victim.id,
+                    "at_tick": tick,
+                    "revive_at": tick + penalty.DOWN_TICKS,
+                })
+
+        # 2) 倒地满了 DOWN_TICKS 还没选 → 自动回城，走全额惩罚。
+        #    这个兜底是必须的：headless 没有交互，倒地后必须有确定行为。
+        for entity in list(world.each(Downed)):
+            downed = entity.get(Downed)
+            if tick < downed.revive_at:
+                continue
+            map_id = world.get_data("current_map")
+            home = penalty.home_point(self.data, map_id)
+            rng = Rng(self.seed, f"death:{entity.id}@{tick}")
+            got = penalty.settle(self.data, entity, rng=rng, tick=tick,
+                                 in_place=False, home=home)
+            world.set_data(KEY_LAST_DEATH, {"entity": entity.id, **got})
+            # 已经起来了：清掉倒地状态，否则「按 R 复活」的提示会一直挂着
+            if (world.get_data(KEY_DOWNED) or {}).get("entity") == entity.id:
+                world.set_data(KEY_DOWNED, None)

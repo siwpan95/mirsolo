@@ -32,8 +32,8 @@ def test_session_has_core_services():
             "SkillSystem", "StatusSystem", "MobChaseSystem", "AiTargetSystem",
             "RingEffectSystem", "MobAttackSystem", "AttackSystem",
             "AuctionSystem", "MercenarySystem",
-            "DeathRewardSystem", "CodexSystem", "RespawnSystem",
-            "SiegeSystem", "PortalSystem",
+            "DeathRewardSystem", "CodexSystem", "DeathPenaltySystem",
+            "RespawnSystem", "SiegeSystem", "PortalSystem",
         }
         names = {type(s).__name__ for s in session.world.systems}
         assert names == expected, f"系统装配与预期不符：多 {names - expected} 少 {expected - names}"
@@ -47,6 +47,8 @@ def test_session_has_core_services():
         assert order.index("AttackSystem") < order.index("DeathRewardSystem")
         # 图鉴在死亡奖励之后（先发掉落，再顺带记一笔图鉴）
         assert order.index("DeathRewardSystem") < order.index("CodexSystem")
+        # 死亡惩罚排在整串死亡副作用的最末：奖励 → 图鉴 → 惩罚/复活
+        assert order.index("CodexSystem") < order.index("DeathPenaltySystem")
         # 特戒结隐要在出刀之前读到"本 tick 有没有出手"，又必须在 AI 走位之后
         # 才算得准——夹在两者之间，挪到任一侧都会在重载测试里变红
         assert order.index("AiTargetSystem") < order.index("RingEffectSystem")

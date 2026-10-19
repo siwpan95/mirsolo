@@ -516,6 +516,90 @@ def gate_wear_and_repair(data=None) -> tuple[bool, str]:
                   f"期望寿命 {shortest}-{longest} 次命中")
 
 
+
+def gate_death_penalty(data=None) -> tuple[bool, str]:
+    """死亡惩罚：兜底一定存在、原地复活有代价、惩罚不越过"掉级"红线。
+
+    四件惩罚里最容易悄悄失效的就是"延迟结算"这一条设计：一旦有人图省事
+    把扣减挪回致死那一下，原地付费复活就得靠退款实现，而退款逻辑会把
+    "掉出去的物品"和"没掉的"混在一起算。因此这里既查数值口径，
+    也用真实的 settle 调用验证**两档惩罚确实不同**。
+    """
+    if data is None:
+        from mirsolo.data.loader import GameData
+
+        data = GameData.load()
+    from mirsolo.actor import penalty
+    from mirsolo.actor.factory import spawn_player
+    from mirsolo.bootstrap import build_session
+    from mirsolo.components import Progression, Wallet
+    from mirsolo.determinism import Rng
+
+    bad = []
+
+    # 1) 兜底窗口：倒地之后必须有自动回城，否则没有交互的场合会永远躺着
+    if penalty.DOWN_TICKS <= 0:
+        bad.append(f"DOWN_TICKS={penalty.DOWN_TICKS} 必须为正"
+                   f"（没有自动回城兜底，headless 会永远躺地上）")
+
+    # 2) 原地复活必须有代价，且不能越高级越便宜
+    if penalty.REVIVE_BASE_GOLD <= 0:
+        bad.append(f"REVIVE_BASE_GOLD={penalty.REVIVE_BASE_GOLD} 必须为正"
+                   f"（原地复活不能白嫖，否则全额惩罚永远触发不到）")
+    if penalty.REVIVE_GOLD_PER_LEVEL < 0:
+        bad.append(f"REVIVE_GOLD_PER_LEVEL={penalty.REVIVE_GOLD_PER_LEVEL} 不能为负"
+                   f"（等级越高反而越便宜，等于鼓励越级送死）")
+
+    # 3) 倍率必须是千分比，且不足以一次掉光一级（掉级红线）
+    for name, value in (("EXP_LOSS_PERMILLE", penalty.EXP_LOSS_PERMILLE),
+                        ("GOLD_LOSS_PERMILLE", penalty.GOLD_LOSS_PERMILLE)):
+        if not 0 < value <= 500:
+            bad.append(f"{name}={value} 不在千分比区间 (0, 500]"
+                       f"（死一次最多掉半级，掉到负数/掉光都不行）")
+
+    # 4) 掉物概率必须是万分比
+    if not 0 <= penalty.BAG_DROP_BP <= 10000:
+        bad.append(f"BAG_DROP_BP={penalty.BAG_DROP_BP} 不在万分比区间 [0, 10000]")
+
+    # 5) 死了必然磨装备：这一件是唯一不可回避的代价
+    if penalty.DEATH_WEAR_POINTS < 1:
+        bad.append(f"DEATH_WEAR_POINTS={penalty.DEATH_WEAR_POINTS} 至少为 1"
+                       f"（死了装备总得坏一点）")
+
+    # 6) 两档必须真的不同：原地不能连经验金币一起掉，
+    #    否则"花钱原地复活"就是纯亏，没人会按 R
+    session = build_session(data=data, seed=1, map_id="biqi_field")
+    try:
+        player = spawn_player(session.world, data, class_id="warrior")
+        prog = player.get(Progression)
+        prog.level = 7
+        prog.exp = 600
+        player.get(Wallet).gold = 10 ** 6    # 够付 7 级的原地复活费（1200 金）
+        home = penalty.home_point(data, "biqi_field")
+        back = penalty.settle(data, player, rng=Rng(1, "gate-back"), tick=0,
+                              in_place=False, home=home)
+        prog.exp = 600
+        player.get(Wallet).gold = 10 ** 6
+        stay = penalty.settle(data, player, rng=Rng(1, "gate-stay"), tick=1,
+                              in_place=True)
+    finally:
+        session.shutdown()
+
+    if back["exp_lost"] <= 0:
+        bad.append("回城那一档没掉经验（全额惩罚形同虚设）")
+    if stay["exp_lost"] != 0 or stay["gold_lost"] != 0 or stay["items"]:
+        bad.append("原地复活那档连经验/金币/物品一起掉了（花钱买不到减损）")
+    if stay["paid"] <= 0:
+        bad.append("原地复活没收钱")
+
+    if bad:
+        return False, "; ".join(bad)
+    return True, (f"倒地 {penalty.DOWN_TICKS} 刻后自动回城；死一次掉经验/金币各 "
+                  f"{penalty.EXP_LOSS_PERMILLE}‰，全身磨损 {penalty.DEATH_WEAR_POINTS} 点，"
+                  f"{penalty.BAG_DROP_BP / 100:.0f}% 掉一件背包物品；"
+                  f"原地复活 {penalty.REVIVE_BASE_GOLD}+"
+                  f"{penalty.REVIVE_GOLD_PER_LEVEL}×等级，只掉磨损")
+
 GATES = [
     ("data-integrity", "九张数据表的引用完整性（掉落/刷新/技能职业/攻城可解析）", gate_data_integrity),
     ("data-files", "data/ 下九张表齐全且是合法 JSON", gate_data_files),
@@ -527,6 +611,8 @@ GATES = [
     ("codex-coverage", "图鉴覆盖的每一种怪都有掉落来源", gate_codex_coverage),
     ("wear-and-repair", "装备耐久在用、修理比买新的便宜、寿命落在可玩区间",
      gate_wear_and_repair),
+    ("death-penalty", "死亡惩罚：兜底存在、原地复活有代价、绝不掉级",
+     gate_death_penalty),
     ("tests-registered", "run_tests.MODULES ↔ tests/test_*.py 双向一致", gate_tests_registered),
     ("readme-commands", "README 里的 python -m 目标都真实可导入", gate_readme_commands),
     ("readme-tree-real", "README 项目结构里的路径都真实存在", gate_tree_real),
@@ -760,6 +846,33 @@ def _selfcheck() -> int:
     else:
         failures += 1
         print(f"  FAIL wear-and-repair 未拦住修理贵过买新（{detail}）")
+
+    # 18) death-penalty：把倒地窗口压成 0，等于取消自动回城兜底
+    from mirsolo.actor import penalty as _pen
+
+    _saved_down = _pen.DOWN_TICKS
+    _pen.DOWN_TICKS = 0
+    ok, detail = gate_death_penalty(game)
+    _pen.DOWN_TICKS = _saved_down
+    if not ok and "必须为正" in detail:
+        print("  ok   death-penalty 能拦住没有自动回城兜底（躺地上就没人管）")
+    else:
+        failures += 1
+        print(f"  FAIL death-penalty 未拦住 DOWN_TICKS=0（{detail}）")
+
+    # 19) death-penalty 的另一半：原地复活免费，全额惩罚就永远触发不到
+    _saved_base = _pen.REVIVE_BASE_GOLD
+    _pen.REVIVE_BASE_GOLD = 0
+    _saved_rate = _pen.REVIVE_GOLD_PER_LEVEL
+    _pen.REVIVE_GOLD_PER_LEVEL = 0
+    ok, detail = gate_death_penalty(game)
+    _pen.REVIVE_BASE_GOLD = _saved_base
+    _pen.REVIVE_GOLD_PER_LEVEL = _saved_rate
+    if not ok and "白嫖" in detail:
+        print("  ok   death-penalty 能拦住免费原地复活（四件惩罚形同虚设）")
+    else:
+        failures += 1
+        print(f"  FAIL death-penalty 未拦住免费原地复活（{detail}）")
 
     print(f"\nselfcheck: {'PASS' if failures == 0 else f'{failures} 条门禁形同虚设'}")
     return 0 if failures == 0 else 1

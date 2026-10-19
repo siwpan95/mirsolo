@@ -16,6 +16,8 @@
         # 验收：拍卖行面板（背包栏得有货才看得出寄卖行的版式）
     python -m mirsolo.cli.play --level 50 --gear --wear 0 --panel shop --shot x.png
         # 验收：磨损与修理（装备全磨穿，商店页底部出现「修理全部」）
+    python -m mirsolo.cli.play --level 30 --gear --gold 5000 --die --shot x.png
+        # 验收：倒地状态（按 R 原地复活 / 等 3 秒自动回城）
 
 按键：WASD / 方向键移动，空格攻击最近的相邻怪，1-5 施放技能，滚轮缩放，
 C 角色 / M 佣兵 / J 图鉴 / N 拍卖行 / B 商店 / V 仓库（点行操作），
@@ -71,6 +73,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="验收用：往背包塞几件可寄卖装备（不穿），拍卖行/商店截图用")
     parser.add_argument("--wear", type=int, default=None, metavar="PERMILLE",
                         help="验收用：把身上每件装备磨到只剩该千分比（0 = 全磨穿）")
+    parser.add_argument("--die", action="store_true",
+                        help="验收用：开窗即把角色放倒（看倒地提示与死亡惩罚）")
     parser.add_argument("--siege", default=None, metavar="ID",
                         help="验收用：开窗即开战（如 sabak），会按战役自己的 map 换图")
     args = parser.parse_args(argv)
@@ -84,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
                level=args.level, learn=args.learn, gear=args.gear,
                panel=args.panel, siege=args.siege, gold=args.gold,
                mercs=tuple(args.merc), codex_kills=args.codex, bag=args.bag,
-               wear_left=args.wear)
+               wear_left=args.wear, dead=args.die)
     except Exception as exc:  # noqa: BLE001 - 开窗失败要给可执行的提示，而不是堆栈
         print(f"[FAIL] 无法启动窗口: {type(exc).__name__}: {exc}", file=sys.stderr)
         print("提示：无显示器/无 GL 时请用 `python -m mirsolo.cli.smoke` 做逻辑验收。",

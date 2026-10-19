@@ -41,6 +41,7 @@ MODULES = [
     "test_auction",
     "test_mercenary",
     "test_wear",
+    "test_penalty",
     "test_codex",
 ]
 

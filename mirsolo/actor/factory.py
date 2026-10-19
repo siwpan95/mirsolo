@@ -15,6 +15,7 @@ from mirsolo.components import (
     Body,
     Codex,
     Cooldowns,
+    DeathLedger,
     Identity,
     Loadout,
     Mercenary,
@@ -96,6 +97,7 @@ def spawn_player(
     entity.add(Warehouse())
     entity.add(Loadout())
     entity.add(Wear())
+    entity.add(DeathLedger())
     entity.add(Skills())
     entity.add(Cooldowns())
     entity.add(Codex())

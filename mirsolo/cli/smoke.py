@@ -19,7 +19,15 @@ import json
 import sys
 
 from mirsolo.bootstrap import build_session, populate
-from mirsolo.components import Bag, Identity, Position, Progression, Vitals, Wallet
+from mirsolo.components import (
+    Bag,
+    DeathLedger,
+    Identity,
+    Position,
+    Progression,
+    Vitals,
+    Wallet,
+)
 from mirsolo.data.loader import GameData
 
 
@@ -58,7 +66,9 @@ def run_simulation(*, ticks: int, seed: int, map_id: str, player_class: str) -> 
 
     1. 选最近活怪，八向走到相邻格；相邻则出刀。
     2. 怪物反击交给 ``MobAttackSystem``（相邻 + 按自身攻速），这里不重复排刀。
-    3. 玩家死亡即回城复活（满血、回到地图中心），并计数——不做掉落惩罚。
+    3. 玩家倒地后**不做任何操作**——惩罚结算与回城复活全在
+       ``actor.penalty`` + ``DeathPenaltySystem`` 里，这里只是躺着等。
+       汇总里的 ``deaths`` / ``exp_lost`` 直接读 ``DeathLedger`` 账本。
     """
     data = GameData.load()
     if not data.ok:
@@ -68,32 +78,25 @@ def run_simulation(*, ticks: int, seed: int, map_id: str, player_class: str) -> 
     spawned = populate(session, player_class=player_class)
     player, monsters = spawned["player"], spawned["monsters"]
 
-    map_spec = data.maps["maps"][map_id]
-    home = (float(map_spec["size"][0] // 2), float(map_spec["size"][1] // 2))
-    deaths = 0
     spawned_count = len(monsters)
 
     for tick in range(ticks):
         vitals = player.get(Vitals)
-        if not vitals.alive:
-            # 回城复活：满血回地图中心（单机不做掉经验惩罚，P1 再议）
-            vitals.hp = vitals.max_hp
-            vitals.mp = vitals.max_mp
-            ppos = player.get(Position)
-            ppos.x, ppos.y = home
-            deaths += 1
-            continue
-
-        target, dist = _nearest_alive_monster(session, player)
-        if target is not None:
-            ppos = player.get(Position)
-            tpos = target.get(Position)
-            if dist <= MELEE_RANGE:
-                session.queue_attack(player, target)
-            else:
-                _step_grid(ppos, tpos)
-            # 怪物反击由 MobAttackSystem 统一处理（同一刻只排一次，避免双倍出手）
+        if vitals.alive:
+            target, dist = _nearest_alive_monster(session, player)
+            if target is not None:
+                ppos = player.get(Position)
+                tpos = target.get(Position)
+                if dist <= MELEE_RANGE:
+                    session.queue_attack(player, target)
+                else:
+                    _step_grid(ppos, tpos)
+                # 怪物反击由 MobAttackSystem 统一处理（同一刻只排一次，避免双倍出手）
+        # 倒地时不排任何意图：站着才找怪出刀，躺着就等 DeathPenaltySystem
+        # 到期自动回城并结算惩罚（那里才是惩罚的唯一入口）
         session.step(1)
+
+    ledger = player.get(DeathLedger)
 
     prog = player.get(Progression)
     wallet = player.get(Wallet)
@@ -112,7 +115,9 @@ def run_simulation(*, ticks: int, seed: int, map_id: str, player_class: str) -> 
         "max_hp": player.get(Vitals).max_hp,
         "gold": wallet.gold,
         "bag": dict(sorted(bag.items.items())),
-        "deaths": deaths,
+        "deaths": ledger.count if ledger is not None else 0,
+        "exp_lost": ledger.exp_lost if ledger is not None else 0,
+        "gold_lost": ledger.gold_lost if ledger is not None else 0,
         "kills": sum(1 for r in rewards if r.get("monster")),
         "reward_events": len(rewards),
         "spawned": spawned_count,
@@ -151,6 +156,8 @@ def main(argv: list[str] | None = None) -> int:
               f"HP {summary['hp']}/{summary['max_hp']}  金币 {summary['gold']}")
         print(f"击杀 {summary['kills']}  奖励流水 {summary['reward_events']}  "
               f"场上实体 {summary['entities_left']}")
+        print(f"死亡 {summary['deaths']} 次  累计掉经验 {summary['exp_lost']}  "
+              f"累计掉金币 {summary['gold_lost']}")
         print(f"背包 {summary['bag'] or '空'}")
 
     if summary["kills"] == 0:
