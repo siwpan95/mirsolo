@@ -1058,6 +1058,150 @@ def gate_forge_and_blessing(data=None) -> tuple[bool, str]:
                   f"祝福油商店+掉落两条腿；真升级/真抹油各一次")
 
 
+def gate_save_and_load(data=None) -> tuple[bool, str]:
+    """持久化存档：登记表齐、往返一致、坏档拒读、账本一个不落。
+
+    最容易悄悄失效的五条：
+
+    * **新组件没登记**。``components.py`` 加了个真相组件却忘了写进
+      ``save/schema.py``，它就不会进档——玩家的钱/等级/新东西关掉游戏就没了，
+      而所有测试都还是绿的。这条按"组件类 ↔ 四张表"做集合差集，一处都不放过。
+    * **账本被漏掉**。``Upgrade.attempts`` / ``Blessing.attempts`` /
+      ``AuctionBook.next_seq`` / ``DeathLedger`` 都只增不减，它们是随机流名与
+      防刷的地基；漏一个，读档就能重掷同一个数。
+    * **派生被当成真相存**。``Attributes`` / ``Body`` 一旦进档，装备表一改
+      存档就与"裸身基准 + 装备加成"分叉，而且是**悄悄**分叉。
+    * **坏档被静默吞掉**。版本不符/校验和不符当成空档继续跑，玩家丢的是一整局。
+    * **槽名接路径**。``../x`` 能拼进 ``saves/`` 外面，就是给自己留了个口子。
+    """
+    if data is None:
+        from mirsolo.data.loader import GameData
+
+        data = GameData.load()
+    import inspect
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from allin_engine import Component
+
+    import mirsolo.components as comps
+    from mirsolo.actor.factory import spawn_player
+    from mirsolo.bootstrap import build_session
+    from mirsolo.components import (
+        Bag,
+        Progression,
+        Upgrade,
+        Vitals,
+        Wallet,
+        Warehouse,
+    )
+    from mirsolo.save import SCHEMA_VERSION, SaveStore, codec, schema
+    from mirsolo.save.codec import SaveError
+
+    bad: list[str] = []
+
+    # 1) 登记表完备：components.py 里每个组件都必须归到四类之一
+    declared = {
+        name for name, obj in vars(comps).items()
+        if inspect.isclass(obj) and issubclass(obj, Component) and obj is not Component
+    }
+    registered = set(schema.classified())
+    missing = sorted(declared - registered)
+    if missing:
+        bad.append(f"这些组件没登记进 save/schema.py：{missing}")
+    stale = sorted(registered - declared)
+    if stale:
+        bad.append(f"save/schema.py 登记了不存在的组件：{stale}")
+
+    # 2) 三张不落盘的表不许渗进真相表；真相表里的每个组件都得有字段表
+    truth = set(schema.truth_component_names())
+    for name in schema.RUNTIME_COMPONENTS:
+        if name in truth:
+            bad.append(f"{name} 同时被登记成真相与运行时")
+    for name in schema.DERIVED_COMPONENTS:
+        if name in truth:
+            bad.append(f"{name} 是派生组件却要落盘（会与装备表分叉）")
+    for name in schema.truth_component_names():
+        if not schema.type_codes(name):
+            bad.append(f"真相组件 {name} 没有字段类型表（存了个空壳）")
+
+    # 3) 四本"只增不减"的账本必须在真相表里
+    for owner, field in (("Upgrade", "attempts"), ("Blessing", "attempts"),
+                         ("AuctionBook", "next_seq"), ("DeathLedger", "count")):
+        if owner not in truth:
+            bad.append(f"{owner} 不在真相表里（读档能刷）")
+        elif field not in [f for f, _ in schema.type_codes(owner)]:
+            bad.append(f"{owner}.{field} 没进字段表（随机流名会重用）")
+    for key in ("seed", "current_map", "entity_serial", "mining_veins"):
+        if key not in schema.WORLD_KEYS:
+            bad.append(f"世界键 {key} 没落盘")
+
+    # 4) 真存真读一次：等级/金币/背包/账本/[血被钳进上限] 全走一遍
+    if not bad:
+        tmp = tempfile.mkdtemp(prefix="mirsolo_gate_")
+        session = build_session(data=data, seed=7, map_id="biqi_field")
+        other = None
+        try:
+            player = spawn_player(session.world, data, class_id="warrior")
+            player.get(Progression).level = 30
+            player.get(Wallet).gold = 4321
+            player.get(Bag).add("mujian", 2)
+            player.get(Upgrade).levels["mujian"] = 2
+            player.get(Upgrade).attempts["mujian"] = 9
+            player.get(Warehouse).items["buyi"] = 3
+            player.get(Vitals).hp = 10 ** 6      # 故意超过上限，验钳制
+            session.step(120)
+            store = SaveStore(tmp)
+            store.write(session, "slot1")
+            raw = json.loads((Path(tmp) / "slot1.json").read_text(encoding="utf-8"))
+            if raw.get("schema_version") != SCHEMA_VERSION:
+                bad.append("写出来的存档版本号不对")
+            if "Attributes" in (raw.get("player") or {}):
+                bad.append("派生组件 Attributes 进了存档")
+            other = build_session(data=data, seed=7, map_id="biqi_field")
+            fresh = spawn_player(other.world, data, class_id="warrior")
+            store.load(other, "slot1")
+            if fresh.get(Progression).level != 30:
+                bad.append("读档后等级没还原")
+            if fresh.get(Wallet).gold != 4321:
+                bad.append("读档后金币没还原")
+            if fresh.get(Bag).items.get("mujian") != 2:
+                bad.append("读档后背包没还原")
+            if fresh.get(Upgrade).attempts.get("mujian") != 9:
+                bad.append("读档后升级尝试次数没还原（能刷）")
+            if fresh.get(Vitals).hp > fresh.get(Vitals).max_hp:
+                bad.append("读档后血量没钳进上限")
+            # 5) 坏档必须拒读且码要对
+            (Path(tmp) / "slot1.json").write_text("{oops", encoding="utf-8")
+            try:
+                store.load(other, "slot1")
+            except SaveError as exc:
+                if exc.code != "bad_json":
+                    bad.append(f"坏 JSON 报的是 {exc.code}，不是 bad_json")
+            else:
+                bad.append("坏 JSON 被当成好档读进去了")
+        finally:
+            session.shutdown()
+            if other is not None:
+                other.shutdown()
+
+    # 6) 槽名不许接路径
+    store = SaveStore("saves")
+    for evil in ("../x", "a/b", ""):
+        try:
+            store.path_of(evil)
+        except ValueError:
+            continue
+        bad.append(f"槽名 {evil!r} 能拼出存档目录外的路径")
+
+    if bad:
+        return False, "; ".join(bad)
+    return True, (f"v{SCHEMA_VERSION}：{len(declared)} 个组件全部归类；"
+                  f"真相 {len(truth)} 段（含 4 本只增不减的账本）；"
+                  f"真存真读一次、坏档拒读、槽名不接路径")
+
+
 GATES = [
     ("data-integrity", "九张数据表的引用完整性（掉落/刷新/技能职业/攻城可解析）", gate_data_integrity),
     ("data-files", "data/ 下九张表齐全且是合法 JSON", gate_data_files),
@@ -1079,6 +1223,9 @@ GATES = [
     ("forge-and-blessing",
      "武器升级与祝福油：七档连号、纯度决定成败、诅咒真压上限、油有两条腿",
      gate_forge_and_blessing),
+    ("save-and-load",
+     "持久化存档：组件全归类、往返一致、坏档拒读、账本一个不落",
+     gate_save_and_load),
     ("tests-registered", "run_tests.MODULES ↔ tests/test_*.py 双向一致", gate_tests_registered),
     ("readme-commands", "README 里的 python -m 目标都真实可导入", gate_readme_commands),
     ("readme-tree-real", "README 项目结构里的路径都真实存在", gate_tree_real),
@@ -1494,6 +1641,63 @@ def _selfcheck() -> int:
     else:
         failures += 1
         print(f"  FAIL forge-and-blessing 未拦住祝福油不上架（{detail}）")
+
+    # 33) save-and-load：把"升级尝试次数"从字段表里摘掉 ——
+    #     attempts 是随机流名的一部分（upgrade:{item_id}:{attempt}），
+    #     漏了它读档就能重掷同一个数
+    from mirsolo.save import schema as _sv_schema
+
+    _saved_up = _sv_schema.TRUTH_FIELDS["Upgrade"]
+    _sv_schema.TRUTH_FIELDS["Upgrade"] = tuple(
+        (f, c) for f, c in _saved_up if f != "attempts")
+    ok, detail = gate_save_and_load(game)
+    _sv_schema.TRUTH_FIELDS["Upgrade"] = _saved_up
+    if not ok and "没进字段表" in detail:
+        print("  ok   save-and-load 能拦住 attempts 没进档（读档能刷）")
+    else:
+        failures += 1
+        print(f"  FAIL save-and-load 未拦住 attempts 缺档（{detail}）")
+
+    # 34) save-and-load：把派生组件 Attributes 塞进真相表 ——
+    #     等于把"裸身基准 + 装备加成"的结果再抄一份，装备表一改就悄悄分叉
+    _saved_truth = _sv_schema.TRUTH_COMPONENTS
+    _sv_schema.TRUTH_COMPONENTS = tuple(_saved_truth) + ("Attributes",)
+    ok, detail = gate_save_and_load(game)
+    _sv_schema.TRUTH_COMPONENTS = _saved_truth
+    if not ok and "派生组件却要落盘" in detail:
+        print("  ok   save-and-load 能拦住派生组件进档（两份事实会分叉）")
+    else:
+        failures += 1
+        print(f"  FAIL save-and-load 未拦住派生组件进档（{detail}）")
+
+    # 35) save-and-load：把一个运行时组件从登记表里整条抹掉 ——
+    #     components.py 加了新东西却没登记，就是"关掉游戏新数据全没"
+    _saved_runtime = _sv_schema.RUNTIME_COMPONENTS
+    _sv_schema.RUNTIME_COMPONENTS = tuple(
+        n for n in _saved_runtime if n != "Poison")
+    ok, detail = gate_save_and_load(game)
+    _sv_schema.RUNTIME_COMPONENTS = _saved_runtime
+    if not ok and "没登记进 save/schema.py" in detail:
+        print("  ok   save-and-load 能拦住组件没登记（新数据会凭空消失）")
+    else:
+        failures += 1
+        print(f"  FAIL save-and-load 未拦住组件未登记（{detail}）")
+
+    # 36) save-and-load：让槽名校验放行路径穿越 ——
+    #     "../x" 能拼到存档目录外面，单机也不该留这个口子
+    import re as _re
+
+    from mirsolo.save import store as _sv_store
+
+    _saved_re = _sv_store._SLOT_RE
+    _sv_store._SLOT_RE = _re.compile(r"^.+$")
+    ok, detail = gate_save_and_load(game)
+    _sv_store._SLOT_RE = _saved_re
+    if not ok and "拼出存档目录外" in detail:
+        print("  ok   save-and-load 能拦住槽名路径穿越（saves/ 之外不许写）")
+    else:
+        failures += 1
+        print(f"  FAIL save-and-load 未拦住槽名路径穿越（{detail}）")
 
     print(f"\nselfcheck: {'PASS' if failures == 0 else f'{failures} 条门禁形同虚设'}")
     return 0 if failures == 0 else 1

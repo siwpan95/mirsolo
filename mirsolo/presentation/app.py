@@ -77,6 +77,15 @@ from mirsolo.presentation.panels import Panel, Row, build_panel
 from mirsolo.presentation.renderer import GLRenderer
 from mirsolo.presentation.scene import MAP_PALETTE, build_instances
 from mirsolo.progression.exp import apply_growth
+from mirsolo.save import (
+    SCHEMA_VERSION,
+    AutoSaver,
+    SaveError,
+    SaveStore,
+    read_file,
+    write_file,
+)
+from mirsolo.save import codec
 from mirsolo.skills import EVT_SKILL_CAST, SELF_KINDS, SkillError, learn
 from mirsolo.siege.campaign import (
     EVT_SIEGE_LOST,
@@ -115,6 +124,15 @@ POTION_KEYS = {
 # 挖矿键：F。按一次开工、再按一次收工；
 # 走开也算收工（系统侧自己停），所以不存在“人在别处、矿在这边”的脏状态。
 MINE_KEY = pyglet.window.key.F
+
+#: 存/读键：F5 存 1 号手动槽，F9 读 1 号手动槽。
+#: 挑 F5/F9 是因为它们不参与任何战斗操作，且是 PC 上“存档/读档”的肌肉记忆；
+#: 刻意不做成 F5/F9 循环切槽——手滑多按一次就会把 3 号槽盖掉。
+SAVE_KEY = pyglet.window.key.F5
+LOAD_KEY = pyglet.window.key.F9
+#: 手动存/读**固定**落在 1 号槽。2/3 号槽留给命令行 ``--save slot2`` 之类的外壳，
+#: 游戏内不做切槽 UI：一个没有删除确认的槽位选择器，价值不如它带来的误覆盖。
+HOT_SLOT = "slot1"
 
 #: 面板开关键 → 面板名。放在这里而不是散在 if 里：加面板只改这张表
 PANEL_KEYS = {
@@ -203,6 +221,19 @@ AUCTION_ERRORS = {
     "missing_components": "角色数据异常",
 }
 
+#: 存档错误码 → 人话 + **可执行的下一步**。读档失败一律拒读并停在这里，
+#: 不做“尽量恢复”——半截状态比没有状态更难排查。
+SAVE_ERRORS = {
+    "bad_json": "文件不是合法 JSON，可能写到一半断电了",
+    "not_a_save": "这不是 mirsolo 存档（缺 kind 标记）",
+    "bad_version": f"存档版本与本程序不符（本程序要 {SCHEMA_VERSION}）",
+    "bad_checksum": "校验和不符——文件被改过或损坏了",
+    "missing_field": "存档缺必填字段，不完整",
+    "bad_type": "存档里字段类型不对",
+    "no_player": "存档里没有玩家",
+    "unknown_item": "存档含本版本没有的物品，拒绝载入",
+}
+
 
 #: 佣兵拒绝码 → 人话。码本身给测试断言用，不上屏
 MERC_ERRORS = {
@@ -219,7 +250,8 @@ class MirsoloWindow(pyglet.window.Window):
     """主窗口：把会话、相机、渲染器、HUD 串起来。"""
 
     def __init__(self, *, session: GameSession, width: int = 1280, height: int = 720,
-                 caption: str = "mirsolo — 热血传奇单机复刻（致敬）"):
+                 caption: str = "mirsolo — 热血传奇单机复刻（致敬）",
+                 saves: SaveStore | None = None):
         super().__init__(width=width, height=height, caption=caption, resizable=True,
                          vsync=False)
         self.session = session
@@ -236,6 +268,12 @@ class MirsoloWindow(pyglet.window.Window):
         self.panel: str | None = None
         self.panel_scroll = 0
         self._panel: Panel | None = None
+        # 存档：目录、自动存档、以及"这一局锻造了几次"（锻造结果没有世界键）
+        self.saves = saves or SaveStore()
+        self.autosaver = AutoSaver(self.saves)
+        self.forge_attempts = 0
+        self.autosaver.reset(tick=self.session.tick, map_id=self.session.map_id,
+                             world=self.session.world)
 
         bus = session.world.get_data("bus")
         if bus is not None:
@@ -269,6 +307,67 @@ class MirsoloWindow(pyglet.window.Window):
         if player is not None:  # 传送是瞬移，相机不要插值过去（否则会飞越大半张图）
             pos = player.get(Position)
             self.camera.center = (pos.x, pos.y)
+        # 换图是自动存节点之一。手动传送（T 键）不走这里，由 :meth:`_use_ring`
+        # 自己存——同一个节点不能存两遍，否则一格自动档被连写两次。
+        self._autosave("map")
+
+    # ── 存档（F5 存 / F9 读 + 关键节点自动） ────────
+
+    def _autosave(self, label: str) -> bool:
+        """写自动槽并回音。失败只提示，不抛（见 ``save.autosave`` 的说明）。"""
+        ok = self.autosaver.save(self.session, label=label)
+        if not ok:
+            self._say(f"自动存档失败：{self.autosaver.last_error}")
+            return False
+        self.autosaver.reset(tick=self.session.tick,
+                             map_id=self.session.map_id,
+                             forge_seq=self.forge_attempts,
+                             world=self.session.world)
+        return True
+
+    def _save_game(self, slot: str = HOT_SLOT) -> bool:
+        """F5：写手动槽。回音里带等级/金币，让玩家能在**不读档**的前提下
+        确认"我刚才存的是哪一局"——否则存完只有一句"已保存"，跟没反馈一样。
+        """
+        try:
+            got = self.saves.write(self.session, slot, label=slot)
+        except (OSError, ValueError, SaveError) as exc:
+            code = getattr(exc, "code", "")
+            hint = SAVE_ERRORS.get(code) or f"{type(exc).__name__}: {exc}"
+            self._say(f"存档失败：{hint}")
+            return False
+        self._say(f"已存入 {slot}　Lv{got['level']}　{got['gold']} 金　"
+                  f"{got['map']}")
+        return True
+
+    def _load_game(self, slot: str = HOT_SLOT) -> bool:
+        """F9：读手动槽。坏档**拒读并说明下一步**，不做"尽量恢复"。
+
+        读档后必须调 :meth:`AutoSaver.reset`：存档里的 tick 可能比当前小，
+        不抬闸门的话第一帧就会把"tick 倒退"误判成节点，立刻写一个自动档。
+        """
+        if not self.saves.exists(slot):
+            self._say(f"{slot} 还没有存档（先按 F5 存一次）")
+            return False
+        try:
+            got = self.saves.load(self.session, slot)
+        except SaveError as exc:
+            hint = SAVE_ERRORS.get(exc.code, str(exc))
+            self._say(f"读档失败：{hint}")
+            return False
+        # 读档 = 换了一整局：锻造计数归零，自动档闸门抬到存档 tick
+        self.forge_attempts = 0
+        self.autosaver.reset(tick=self.session.tick, map_id=self.session.map_id,
+                             forge_seq=self.forge_attempts,
+                             world=self.session.world)
+        player = self.session.world.get_entity("player")
+        if player is not None:
+            pos = player.get(Position)
+            self.camera.center = (pos.x, pos.y)
+        self.panel_scroll = 0
+        self._say(f"已读 {slot}　Lv{got['level']}　{got['gold']} 金　"
+                  f"{self.session.data.maps['maps'].get(got['map'], {}).get('name', got['map'])}")
+        return True
 
     # ── 攻城战役反馈 ────────────────────────────────
 
@@ -369,6 +468,12 @@ class MirsoloWindow(pyglet.window.Window):
             return
         if symbol == MINE_KEY:
             self._toggle_mining()
+            return
+        if symbol == SAVE_KEY:
+            self._save_game(HOT_SLOT)
+            return
+        if symbol == LOAD_KEY:
+            self._load_game(HOT_SLOT)
             return
         # 技能栏 1..5（数字键与数字小键盘都收）：按一次放一次，
         # 长按不连发——连发交给冷却门控反而会让节奏变乱。
@@ -475,6 +580,10 @@ class MirsoloWindow(pyglet.window.Window):
                     # 矿石没了、金币没了，会以为按钮把东西吞了。
                     self._say(f"{name} 升级失败，掉到 +{got['level']}"
                               f"（{got['bp'] // 100}% 没中）")
+                # 锻造是自动存节点：``attempts`` 已自增、材料已扣，
+                # 此刻存盘才不会"读档回来还能拿同一次 roll 重掷"
+                self.forge_attempts += 1
+                self._autosave("forge")
             elif row.action == "bless":
                 got = blessing_rules.bless(player, data, self.session.seed)
                 name = data.items["items"].get(got["item"], {}).get("name", got["item"])
@@ -485,6 +594,8 @@ class MirsoloWindow(pyglet.window.Window):
                               f"（伤害上限被压低了）")
                 else:
                     self._say(f"{name} 抹油失败，祝福掉到 {got['level']}")
+                self.forge_attempts += 1
+                self._autosave("forge")
             elif row.action == "cycle_tier":
                 self._say(f"报价档：{auction.cycle_ask_tier(player)}")
             elif row.action == "hire":
@@ -522,6 +633,10 @@ class MirsoloWindow(pyglet.window.Window):
             self._say(f"特戒：{RING_ERRORS.get(exc.code, exc.code)}")
             return
         self._on_map_changed(result)
+        # 特戒传送走的是 ``travel_to`` 直连，**不发** EVT_MAP_CHANGED
+        # （那条事件只在 PortalSystem 踩点时发），所以换图节点在这里补一次。
+        # 同一个 tick 不可能踩点又用戒指，不会存两遍。
+        self._autosave("map")
 
     def _revive_in_place(self) -> None:
         """原地复活（``R`` 键）：花金币、位置不动，免掉经验/金币/掉物三件惩罚。
@@ -548,6 +663,9 @@ class MirsoloWindow(pyglet.window.Window):
                 self._say(f"复活：{REVIVE_ERRORS.get(exc.code, exc.code)}")
             return
         self._say(f"原地复活 -{got['paid']} 金（经验与背包都没掉）")
+        # 复活也是"死亡结算"的一次完成——自动存一次，让"倒地后立刻关游戏"
+        # 不会读回一个还没结算的倒地状态（那个状态不落盘，会变成空血活人）
+        self._autosave("revive")
 
     def _drink(self, want: str) -> None:
         """喝药：只往世界投一个意图，真喝由 ``PotionSystem`` 在下一个 tick 做。
@@ -732,6 +850,9 @@ class MirsoloWindow(pyglet.window.Window):
         self.session.engine.advance(self._last_real_dt)
         self._report_potion()
         self._report_ore()
+        # 升级 / 死亡结算两个节点没有事件，只能在这里轮询世界键。
+        # ``AutoSaver`` 内部用 tick 单调性当闸门，所以每帧调也不会重复写盘。
+        self.autosaver.observe(self.session, forge_seq=self.forge_attempts)
 
         if player is not None:
             pos = player.get(Position)
@@ -1210,7 +1331,10 @@ def launch(*, seed: int = 20261019, map_id: str = "biqi_field",
            wear_left: int | None = None,
            dead: bool = False, hurt: bool = False,
            potions: bool = False, mine: bool = False,
-           ore: bool = False, forge: bool = False) -> None:
+           ore: bool = False, forge: bool = False,
+           save_dir: str | None = None,
+           load_path: str | None = None,
+           save_path: str | None = None) -> None:
     """装配会话 + 开窗（CLI 与测试共用入口）。
 
     ``panel`` 只用于验收截图：开窗时就打开某个面板（``character``/``mercenary``/
@@ -1221,17 +1345,30 @@ def launch(*, seed: int = 20261019, map_id: str = "biqi_field",
     :func:`mirsolo.siege.campaign.start_siege`——它内部会换图并铺现场，
     因此 ``map_id`` 会被战役的 ``map`` 覆盖（不覆盖就会"人还在比奇城却挂着
     沙巴克状态条"）。
+
+    ``save_dir`` / ``load_path`` / ``save_path`` 是存档面的三个验收口：
+    默认读写工作目录下的 ``saves/``；``load_path`` 读任意一份存档
+    （**读档优先于其它验收开关**——既然要接着那一局玩，就不该再叠
+    ``--level 50 --gear``）；``save_path`` 则在开窗前存一份再退出，
+    用来验收"存量读"整条链路。
     """
     session = build_session(seed=seed, map_id=map_id)
     populate(session, player_class=player_class)
-    prepare_character(session, class_id=player_class, level=level,
-                      learn_all=learn, gear=gear, gold=gold, mercs=mercs,
-                      codex_kills=codex_kills, bag=bag, wear_left=wear_left,
-                      dead=dead, hurt=hurt, potions=potions,
-                      mine=mine, ore=ore, forge=forge)
-    if siege is not None:
-        start_siege(session, siege)
-    window = MirsoloWindow(session=session, width=width, height=height)
+    store = SaveStore(save_dir)
+    if load_path:
+        payload = read_file(load_path)
+        codec.load_session(session, payload)
+    else:
+        prepare_character(session, class_id=player_class, level=level,
+                          learn_all=learn, gear=gear, gold=gold, mercs=mercs,
+                          codex_kills=codex_kills, bag=bag, wear_left=wear_left,
+                          dead=dead, hurt=hurt, potions=potions,
+                          mine=mine, ore=ore, forge=forge)
+        if siege is not None:
+            start_siege(session, siege)
+    if save_path:
+        write_file(session, save_path)
+    window = MirsoloWindow(session=session, width=width, height=height, saves=store)
     if panel is not None:
         window.panel = panel
     try:

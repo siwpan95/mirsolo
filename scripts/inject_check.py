@@ -587,6 +587,53 @@ INJECTIONS = [
      '        enabled=bool(info["ok"]))',
      "        enabled=True)",
      "tests.test_forge"),
+    # ── P3-S6 持久化存档 ─────────────────────────────
+    ("读档不清运行时组件（读档自带满盾/中毒/倒地状态）",
+     ROOT / "mirsolo/save/codec.py",
+     '    for name in ("Shield", "Poison", "Invisible", "Downed", "Paralysis"):',
+     "    for name in ():",
+     "tests.test_save"),
+    ("自动档的 tick 闸门放宽成 >=（同一刻重入也算新节点）",
+     ROOT / "mirsolo/save/autosave.py",
+     "        if tick <= self._floor:",
+     "        if tick < self._floor:",
+     "tests.test_autosave"),
+    ("写盘失败往上抛（磁盘满直接把游戏搞崩）",
+     ROOT / "mirsolo/save/autosave.py",
+     "        try:\n"
+     "            self.store.write(session, self.slot, label=f\"自动·{label}\" if label else \"自动\")\n"
+     "        except (OSError, ValueError) as exc:",
+     "        self.store.write(session, self.slot, label=f\"自动·{label}\" if label else \"自动\")\n"
+     "        if False:\n"
+     "            exc = None",
+     "tests.test_autosave"),
+    ("自动存档基线不读当下流水（reset 置 -1，读档后补存一帧旧节点）",
+     ROOT / "mirsolo/save/autosave.py",
+     "        self._seen[\"level\"] = _event_tick(world, KEY_LEVEL_UP)\n"
+     "        self._seen[\"death\"] = _event_tick(world, KEY_LAST_DEATH)",
+     "        self._seen[\"level\"] = -1\n"
+     "        self._seen[\"death\"] = -1",
+     "tests.test_autosave"),
+    ("血钳制摘掉（读档留 200/136 怪物）",
+     ROOT / "mirsolo/save/codec.py",
+     "        vitals.hp = max(0, min(int(saved.get(\"hp\", vitals.max_hp)), vitals.max_hp))",
+     "        vitals.hp = int(saved.get(\"hp\", vitals.max_hp))",
+     "tests.test_save"),
+    ("校验和换 Python hash()（跨进程不一致，好档被判坏）",
+     ROOT / "mirsolo/save/codec.py",
+     "    return f\"{fnv1a64(_canonical(body)):016x}\"",
+     "    return f\"{hash(_canonical(body)) & 0xFFFFFFFFFFFFFFFF:016x}\"",
+     "tests.test_save"),
+    ("槽名放开成接路径（saves/ 之外随便写）",
+     ROOT / "mirsolo/save/store.py",
+     "        if not _SLOT_RE.match(name):",
+     "        if False and not _SLOT_RE.match(name):",
+     "tests.test_save"),
+    ("写档不做原子替换（直接 copy，且不清理 tmp）",
+     ROOT / "mirsolo/save/store.py",
+     "            os.replace(tmp, target)",
+     "            import shutil\n            shutil.copyfile(tmp, target)",
+     "tests.test_save"),
 ]
 
 

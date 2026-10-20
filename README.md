@@ -14,7 +14,7 @@
 - **确定性**：纯整数随机流，同种子同结局；掉落与击杀序号绑定，读档重打不刷装
 - **零 GL 可测**：逻辑层无窗口单测，headless 冒烟 3 秒跑完 2000 秒游戏时间
 
-## 现状：P2 终局内容已完，P3 单机化改造进行中（锻造已完）
+## 现状：P2 终局内容已完，P3 单机化改造进行中（存档已完，P3 全部收官）
 
 已完成：战斗数学（物 / 魔 / 道三分野）、经验曲线与成长、组权重掉落、
 三职业 16 技、等距斜俯视 3D 表现层（角色 / 佣兵 / 图鉴 / 拍卖行 / 商店 / 仓库 / 锻造七个面板）、
@@ -24,11 +24,13 @@
 挖矿（鹤嘴锄占武器槽 / 五色矿石 + 黑铁四档纯度 / F 键十刻一锄 / 矿点枯竭与再生 / 商店整笔卖矿）、
 武器升级与祝福油（+1 级下限 +1 上限 +2 / 失败材料全损降 1 级 / 纯度即成功率 /
 祝福油改武器幸运可失败降 1 / 诅咒压伤害上限 / G 键锻造面板）、
+持久化存档（只存真相派生重算 / 3 手动槽 + 1 自动槽 / F5 存 F9 读 /
+换图·升级·死亡结算·锻造四处自动存 / schema_version + FNV-1a 校验和坏档拒读 /
+原子写）、
 ECS 装配（21 个系统：Tick / 回血 / 拍卖 / 佣兵到期 / 喝药 / 挖矿 / 冷却 / 状态 / 移动 / 技能 /
 追击 / 选敌 / 特戒 / 出刀 / 结算 / 死亡奖励 / 图鉴 / 死亡惩罚 / 刷怪 / 攻城 / 传送）。
 
-未完成（P3 剩余欠账）：持久化存档
-（确定性已就位，读写层未做）。
+P3 单机化改造全部完成。
 
 ## 快速开始
 
@@ -83,13 +85,18 @@ mirsolo/
       travel.py         传送点判定与换图（PortalSystem，踩上去就过）
     siege/
       campaign.py       沙巴克攻城战役（三波目标/准入锁定/增援/胜负结算，SiegeSystem）
+    save/
+      schema.py         什么进档的唯一登记表（真相/派生/运行时/部分 四类组件 + 逐字段类型码）
+      codec.py          会话 ↔ 纯 JSON（FNV-1a 校验和、坐标 1/1000 定点、先派生后钳血的读档顺序）
+      store.py          文件层（槽位命名防穿越、tmp + os.replace 原子写、坏档逐码可分辨）
+      autosave.py       自动存档（换图/升级/死亡结算/锻造四节点，tick 单调闸门防读档连锁写盘）
     presentation/
       iso_camera.py     真等距相机（35.264° 俯角 / 正交投影 / 跟随缩放）
       scene.py          实例收集与深度排序 + 矿点标记（纯数据，无 GL）
       hud.py            HP/MP/EXP 条、状态文本、攻城状态条与挖矿进度（纯数据，无 GL）
       panels.py         七个面板的布局与命中测试（角色/佣兵/图鉴/拍卖行/商店/仓库/锻造，纯数据无 GL）
       renderer.py       pyglet 2.1 ShaderProgram 渲染（地面网格 1 draw / 实例 1 draw）
-      app.py            窗口、输入（WASD/空格/T 特戒/Q 红药/E 蓝药/R 复活/F 挖矿/C/M/J/N/B/V/G 面板/滚轮/鼠标点面板）与固定步长循环
+      app.py            窗口、输入（WASD/空格/T 特戒/Q 红药/E 蓝药/R 复活/F 挖矿/F5 存/F9 读/C/M/J/N/B/V/G 面板/滚轮/鼠标点面板）与固定步长循环
     data/
       loader.py         十一张表加载 + 结构校验 + 引用校验
     cli/
@@ -113,13 +120,13 @@ mirsolo/
   docs/
     数据口径.md          逐表来源、近似标记与已知差异
     借鉴记账.md          借鉴对象 / 许可证 / 范围 / 禁区
-  scripts/verify.py     17 条机械门禁（含 --selfcheck 注入破坏自检）
+  scripts/verify.py     18 条机械门禁（含 --selfcheck 注入破坏自检）
   scripts/extend_p2_luck.py  幂等写幸运数据（终局武器 luck 7 + 两条幸运项链）
   scripts/extend_p2_rings.py 幂等写特戒数据（六枚戒指 + 六只 BOSS 的专属掉落组）
   scripts/extend_p2_auction.py 幂等写寄卖参数（38 件可交易物品的 demand/floor）
   scripts/extend_p2_mercs.py   幂等写佣兵表（三种佣兵 + 等级门槛与名额）
-  scripts/inject_check.py  注入验证：108 处注入，把生产代码改坏，确认回归真的会红
-  tests/run_tests.py    测试聚合 runner（24 模块）
+  scripts/inject_check.py  注入验证：116 处注入，把生产代码改坏，确认回归真的会红
+  tests/run_tests.py    测试聚合 runner（26 模块）
 ```
 
 ## 设计要点
@@ -268,10 +275,34 @@ priority 9，夹在喝药（8）与冷却递减**之间**、且在移动（10）
 随机流 `bless:{item_id}:{attempt}` 与升级同一条"只增不减"纪律
 （详见 `docs/数据口径.md` 的《武器升级与祝福油（P3-S5）》一节）。
 
+**17. 存档只存真相，派生一律重算；读档顺序是"先派生、后真相、最后钳血"。**
+进档的只有**事实**（等级/经验/背包/仓库/穿戴/钱包/技能/图鉴/特戒次数/拍卖账本/
+磨损/升级/祝福/死亡账本/坐标/地图/seed/tick/entity_serial/刷怪计时/矿脉账本），
+**派生**（六维 dc/mc/sc/ac/mac、luck、max_hp/max_mp、负重）由 `apply_growth` +
+`recompute` 读档现算——存了就会跟装备表分叉（改一条装备数据，所有旧档属性全错）。
+**运行时**（护盾/中毒/隐身/倒地/麻痹/冷却/挖矿进行时）读档清空：读档 = 重新进图。
+读档顺序钉死为「写真相 → 裸身基准 → 叠装备 → **最后**把存档里的当前血钳进新上限」：
+顺序反了，"穿 +血装存档、读档时装备已磨穿"会留下一个 200/136 的怪物。
+账本纪律全量延续：`Upgrade.attempts` / `Blessing.attempts` / `AuctionBook.next_seq`
+/ `DeathLedger` / `entity_serial` / 刷怪计时**全部进档且只增不减**——
+清零 = 随机流名重用 = 读档重来掷出同一个数。
+校验和用 `fnv1a64`（Python `hash()` 带 `PYTHONHASHSEED` 随机盐，跨进程不一致，
+会把好档判成坏档），且有一条约束到**字面量**的测试（期望值写死，
+单进程内换 `hash()` 也红）。写盘是 tmp + `os.replace` 原子写：写一半被掐，
+留下的是完整旧档而不是半个新档。坏档按码拒读（bad_json / not_a_save /
+bad_version / bad_checksum / missing_field / bad_type / no_player / unknown_item），
+**绝不**静默当空档继续——丢一条报错好过丢一整局。
+自动存档盯四个节点（换图 / 升级 / 死亡结算 / 锻造一次），全部用**轮询 + tick
+单调闸门**而不是订阅事件：读档会把 tick 拨回去，事件型钩子会在读档过程中被
+触发、把刚读进来的整局原地存回一个半读状态；闸门保证"tick 没变大就什么都不做"，
+读档绝不可能引发连锁写盘。F5 存 / F9 读都落在 1 号手动槽——
+没有删除确认的槽位选择器，价值不如它带来的误覆盖
+（详见 `docs/数据口径.md` 的《持久化存档（P3-S6）》一节）。
+
 ## 测试与验收
 
 ```bat
-python -m tests.run_tests              :: 24 个模块，389 项无窗口单测
+python -m tests.run_tests              :: 26 个模块，429 项无窗口单测
 python -m mirsolo.cli.smoke --ticks 3000   :: headless 冒烟（含确定性复跑）
 python -m mirsolo.cli.play --level 50 --gear --siege sabak --shot shots\siege.png
                                        :: 攻城验收：开窗即开战，顶部战役状态条
@@ -283,11 +314,15 @@ python -m mirsolo.cli.play --level 30 --mine --ore --panel shop --shot shots\p3s
                                        :: 卖矿验收：商店页底部"卖掉全部矿石"按得动
 python -m mirsolo.cli.play --level 30 --gear --gold 20000 --forge --panel forge --shot shots\p3s5_forge.png
                                        :: 锻造验收：左武器升级 / 右祝福油，两行都写清代价与成功率
-python scripts\verify.py               :: 17 条机械门禁（<1 秒）
+python -m mirsolo.cli.play --level 30 --gear --gold 4321 --save tmp\a.json --shot shots\p3s6_save.png
+                                       :: 存档验收：开窗前把这局写盘，HUD 显示 Lv30 / 4321 金
+python -m mirsolo.cli.play --load tmp\a.json --shot shots\p3s6_load.png
+                                       :: 读档验收：接着那一局开窗（--level 等开关让位）
+python scripts\verify.py               :: 18 条机械门禁（<1 秒）
 python scripts\verify.py --list        :: 只看门禁清单
 python scripts\verify.py --verbose     :: 每条门禁的证据
 python scripts\verify.py --selfcheck   :: 注入破坏，证明门禁拦得住
-python scripts\inject_check.py         :: 108 处注入，全部要能把测试打红
+python scripts\inject_check.py         :: 116 处注入，全部要能把测试打红
 ```
 
 门禁清单：
@@ -310,6 +345,7 @@ python scripts\inject_check.py         :: 108 处注入，全部要能把测试�
 | `potion-and-sustain` | 九档药水齐备（hp/mp/both）、公共冷却在拦、每个怪都掉药且药水组一律在末尾、自动喝药真在生效 |
 | `mining-and-ores` | 工具与矿石成立、纯度只长在矿石上、矿脉表口径一致、每锄期望收益落在区间、矿点不压传送点、真站上去挥 200 刻有产出 |
 | `forge-and-blessing` | 升级表七档连号、纯度即成功率全档、每把武器恰一条主属性且工具不可升、祝福表值域、诅咒真压上限、祝福油商店+掉落两条腿、真升级真抹油各走一遍 |
+| `save-and-load` | 组件全归类（真相/派生/运行时）、账本字段全进档、真存真读往返一致、血钳进上限、坏 JSON 拒读、槽名拼不出目录外 |
 | `package-imports` | `mirsolo/` 下每个模块都能 import |
 
 ## 路线图
@@ -324,7 +360,7 @@ python scripts\inject_check.py         :: 108 处注入，全部要能把测试�
 | P3-S3 | 药水与续航（九档药水 / 商店捆买 / 怪物掉落 / 自动喝药） | ✅ |
 | P3-S4 | 挖矿（鹤嘴锄占武器槽 / 五色矿石 + 黑铁四档纯度 / F 键十刻一锄 / 矿点枯竭与再生 / 商店整笔卖矿） | ✅ |
 | P3-S5 | 武器升级与祝福油（+1 级 +1/+2 / 失败降 1 / 纯度即成功率 / 祝福油改幸运可失败 / 诅咒压上限 / G 锻造面板） | ✅ |
-| P3-S6 | 持久化存档（读写层） | ⬜ 未开工 |
+| P3-S6 | 持久化存档（3 手动槽 + 自动槽 / F5·F9 / 四节点自动存 / 版本号 + 校验和 / 原子写） | ✅ |
 
 ## 许可
 

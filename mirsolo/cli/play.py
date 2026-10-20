@@ -28,11 +28,17 @@
     python -m mirsolo.cli.play --level 30 --gear --gold 20000 --forge \
         --panel forge --shot x.png
         # 验收：锻造（左武器升级 / 右祝福油，两行都写清代价与成功率）
+    python -m mirsolo.cli.play --level 30 --gear --gold 4321 --save tmp/x.json \
+        --shot a.png
+        # 验收：存（开窗前把这局写盘，--save 的路径任意）
+    python -m mirsolo.cli.play --load tmp/x.json --shot b.png
+        # 验收：读（接着那一局开窗；--level/--gear 等验收开关在读档时一律让位）
 
 按键：WASD / 方向键移动，空格攻击最近的相邻怪，1-5 施放技能，滚轮缩放，
 Q 喝红药 / E 喝蓝药（血/蓝低于阈值时系统也会自己喝，不按键也行），
 站到矿点上按 F 开工挖矿（再按一次收工，挪一步也会自动收工），
 C 角色 / M 佣兵 / J 图鉴 / N 拍卖行 / B 商店 / V 仓库 / G 锻造（点行操作），
+F5 存 / F9 读（都落在 1 号手动槽；换图 / 升级 / 死亡结算 / 锻造各自动存一次），
 ESC 关面板 / 再按退出。走上传送点自动换图。
 
 ``--level`` / ``--learn`` / ``--gear`` / ``--gold`` / ``--merc`` / ``--codex`` /
@@ -99,6 +105,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="验收用：穿一把能升级的武器 + 塞黑铁矿石与祝福油")
     parser.add_argument("--siege", default=None, metavar="ID",
                         help="验收用：开窗即开战（如 sabak），会按战役自己的 map 换图")
+    parser.add_argument("--save-dir", default=None, metavar="DIR",
+                        help="存档目录（默认 ./saves；F5/F9 与自动存档都落在这里）")
+    parser.add_argument("--load", dest="load_path", default=None, metavar="PATH",
+                        help="验收用：开窗即读这份存档（优先于 --level/--gear 等开关）")
+    parser.add_argument("--save", dest="save_path", default=None, metavar="PATH",
+                        help="验收用：开窗前把当前这局存到该路径（验「存→读」链路）")
     args = parser.parse_args(argv)
 
     from mirsolo.presentation.app import launch
@@ -112,7 +124,9 @@ def main(argv: list[str] | None = None) -> int:
                mercs=tuple(args.merc), codex_kills=args.codex, bag=args.bag,
                wear_left=args.wear, dead=args.die,
                hurt=args.hurt, potions=args.potions,
-               mine=args.mine, ore=args.ore, forge=args.forge)
+               mine=args.mine, ore=args.ore, forge=args.forge,
+               save_dir=args.save_dir, load_path=args.load_path,
+               save_path=args.save_path)
     except Exception as exc:  # noqa: BLE001 - 开窗失败要给可执行的提示，而不是堆栈
         print(f"[FAIL] 无法启动窗口: {type(exc).__name__}: {exc}", file=sys.stderr)
         print("提示：无显示器/无 GL 时请用 `python -m mirsolo.cli.smoke` 做逻辑验收。",

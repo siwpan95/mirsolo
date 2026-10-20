@@ -45,6 +45,8 @@ MODULES = [
     "test_potion",
     "test_mining",
     "test_forge",
+    "test_save",
+    "test_autosave",
     "test_codex",
 ]
 
