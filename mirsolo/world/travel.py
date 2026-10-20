@@ -20,9 +20,10 @@ from __future__ import annotations
 
 from allin_engine import System, World
 
-from mirsolo.actor.systems import KEY_TICK
+from mirsolo.actor.systems import KEY_INTENTS, KEY_TICK
 from mirsolo.components import Position, Vitals
 from mirsolo.data.loader import GameData
+from mirsolo.skills.engine import reset_cooldowns
 from mirsolo.world.spawn import spawn_map_monsters
 
 EVT_MAP_CHANGED = "world:map_changed"
@@ -128,6 +129,16 @@ def travel(session, target_map_id: str, *, from_map: str | None = None) -> dict:
         raise TravelError("dead", "死亡状态不能换图")
 
     removed = _clear_map_entities(session, keep_eid=player.eid)
+    # 旧图实体刚被删掉，队列里指向它们的攻击意图必须一起清掉：AttackSystem
+    # 只消费"目标还活着"的意图，目标死了那条是 **continue 留在队列里**
+    # （actor/systems.py 的 update 末尾只剔除已处理的），于是打死的怪越多、
+    # 队列攒得越长；换图不清，新图第一刻就会对着已经不在世界里的实体结算。
+    # 读档路天然是空队列，所以这里是"两条路径分叉"的同一条纪律的另一半。
+    #
+    # 时机：travel 的三个入口（PortalSystem p95 全场最后跑 / 传送戒指按键 /
+    # 显式 travel_to）都在 AttackSystem（p30）之后或 tick 之外，所以这次清空
+    # 一定早于下一次消费——放在清场之后就是为了紧跟"实体刚失效"这一刻。
+    session.world.set_data(KEY_INTENTS, [])
 
     session.map_id = target_map_id
     session.world.set_data("current_map", target_map_id)
@@ -135,6 +146,8 @@ def travel(session, target_map_id: str, *, from_map: str | None = None) -> dict:
     x, y = entry_point(data, target_map_id, from_map=from_map or origin)
     pos = player.get(Position)
     pos.x, pos.y = float(x), float(y)
+    # 换图 = 重新进图：旧图攒下的技能冷却不跟着人走（与读档共用同一个函数）
+    reset_cooldowns(player)
 
     spawned = spawn_map_monsters(session.world, data, target_map_id, session.seed)
     tick = int(session.world.get_data(KEY_TICK, 0) or 0)

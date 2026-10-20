@@ -39,6 +39,10 @@ from __future__ import annotations
 
 #: 存档格式版本。**任何**影响读档结果的结构改动都必须 +1（不是"改了就 +1"，
 #: 而是"旧档读不出来了才 +1"——纯加可选字段不该逼玩家重开档）
+#:
+#: P0-F3 加 ``siege_state`` 时按这条判据核过：它进的是
+#: :data:`OPTIONAL_WORLD_KEYS`，缺键等价于"此刻没有攻城"，旧档照读，
+#: 所以版本**保持在 1**。
 SCHEMA_VERSION = 1
 
 #: 存档文件后缀
@@ -164,13 +168,22 @@ TRUTH_FIELDS: dict[str, tuple[tuple[str, str], ...]] = {
     ),
 }
 
-#: 世界侧要落盘的数据键（其余一律重生）
+#: 世界侧要落盘的数据键（其余一律重生）。
+#: 缺任何一个 = 旧档读不出来 → 只能跟着 ``SCHEMA_VERSION`` 一起升。
 WORLD_KEYS: tuple[str, ...] = (
     "seed",
     "current_map",
     "kill_counts",
     "entity_serial",
     "mining_veins",
+)
+
+#: 可选的世界数据键：**旧档里没有**，缺键取"等于没有这件事"的默认值，不报错。
+#: 有了这一条，给世界段加"新出现的状态"就不必逼玩家重开档 ——
+#: 缺 ``siege_state`` 的旧档读进来就是"此刻没有攻城"，这正是 ``SCHEMA_VERSION``
+#: 保持在 1 的理由（见文件头那条注释的判据：旧档读得出来就不 +1）。
+OPTIONAL_WORLD_KEYS: tuple[str, ...] = (
+    "siege_state",
 )
 
 #: 刷怪系统的运行时状态键（系统内部字段，经 ``snapshot`` 导出）

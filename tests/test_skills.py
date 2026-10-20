@@ -6,6 +6,8 @@ MP/冷却的数字直接来自 ``skills.json``，改表就要改这里的期望�
 
 from __future__ import annotations
 
+import tempfile
+
 from mirsolo.actor.factory import spawn_monster, spawn_player
 from mirsolo.bootstrap import build_session, populate
 from mirsolo.components import (
@@ -24,6 +26,7 @@ from mirsolo.components import (
 )
 from mirsolo.data.loader import GameData
 from mirsolo.progression.exp import apply_growth
+from mirsolo.save import SaveStore
 from mirsolo.skills import (
     MAX_PROFICIENCY,
     PLANNED_KINDS,
@@ -32,6 +35,7 @@ from mirsolo.skills import (
     can_cast,
     learn,
 )
+from mirsolo.world.travel import travel
 
 CASES = []
 DATA = GameData.load()
@@ -482,6 +486,83 @@ def test_summon_respects_max_count():
         summons = [e for e in session.world.each(SummonOwner)
                    if e.get(SummonOwner).owner_id == taoist.id]
         assert len(summons) == SKILLS["zhaohuankulou"]["summon_max"], len(summons)
+    finally:
+        session.shutdown()
+
+
+@case
+def test_entering_a_map_clears_skill_cooldown():
+    """进图即清冷却：换图后**第 1 刻**就能再放，读档同理。
+
+    冷却记的是"上一次出手的余韵"，而换图 / 读档都等于重新进图——进图之前
+    攒下的那截冷却不该跟着人走（不清的话，1.2 秒的火球冷却会跟着人跨图，
+    进新图还要干等 12 刻）。
+
+    两条路必须走**同一个函数**：本项目在铺怪上已经因为两条路径各写一份而
+    分叉过（见 ``world/spawn.py`` 顶部），所以这里除了验行为，还验两个模块
+    拿到的是同一个 ``reset_cooldowns`` 对象——防止哪天某一侧自己 inline 一份。
+    """
+    from importlib import import_module
+
+    # 用 import_module 取模块本体：``mirsolo.world`` 包把 ``travel`` 这个名字
+    # 重新导出成了函数，``from mirsolo.world import travel`` 拿到的是那个函数
+    travel_mod = import_module("mirsolo.world.travel")
+    codec_mod = import_module("mirsolo.save.codec")
+    engine_mod = import_module("mirsolo.skills.engine")
+
+    # 只验"模块里有同名函数"是不够的：真分叉的人会留着那行 import，然后在
+    # 调用点自己 clear 一份（试过，那样下面这条是绿的）。所以两条都验：
+    # ① 拿到的是技能域那个函数对象；② 源码里的清除确实是调用它，而不是就地 clear。
+    import inspect
+
+    shared = getattr(travel_mod, "reset_cooldowns", None)
+    assert shared is not None, "换图路径没有接 reset_cooldowns"
+    assert shared is engine_mod.reset_cooldowns, "换图的 reset_cooldowns 不是技能域那个"
+    for mod in (travel_mod, codec_mod):
+        src = inspect.getsource(mod)
+        assert getattr(mod, "reset_cooldowns", None) is shared, \
+            f"{mod.__name__} 没有共用技能域的 reset_cooldowns"
+        assert "reset_cooldowns(" in src, f"{mod.__name__} 没调用 reset_cooldowns"
+        assert "remaining.clear()" not in src, \
+            f"{mod.__name__} 自己就地 clear 了冷却账（两条路径分叉）"
+
+    session, player = _session()
+    try:
+        mage = _make_caster(session, "mage", 7)
+        _learn_with_book(mage, "huozhu")
+        mob = spawn_monster(session.world, DATA, "ji",
+                            x=mage.get(Position).x + 2, y=mage.get(Position).y)
+        session.cast_skill(mage, "huozhu", mob)
+        session.step(2)
+        assert mage.get(Cooldowns).remaining.get("huozhu", 0.0) > 0.0, "第一发没进冷却"
+
+        # ① 换图：下一刻就该放得出去，而不是等冷却走完
+        travel(session, "biqi_mine_1")
+        assert mage.get(Cooldowns).remaining.get("huozhu", 0.0) == 0.0, "换图没清冷却"
+        assert can_cast(mage, DATA, "huozhu") == (True, "ok"), can_cast(mage, DATA, "huozhu")
+        px, py = mage.get(Position).x, mage.get(Position).y
+        mob2 = spawn_monster(session.world, DATA, "ji", x=px + 2, y=py)
+        mp0 = mage.get(Vitals).mp
+        session.cast_skill(mage, "huozhu", mob2)
+        session.step(1)
+        assert mage.get(Vitals).mp < mp0, "换图后第 1 刻没能施放"
+        assert mage.get(Cooldowns).remaining.get("huozhu", 0.0) > 0.0, "施放了却没进冷却"
+
+        # ② 读档：存档里根本没有冷却字段（Cooldowns 是运行时组件），但真实读档
+        #    是往**正在跑的会话**上套（presentation/app.py: saves.load(self.session)），
+        #    此刻玩家身上还挂着冷却，必须由 _clear_runtime 清掉。
+        assert mage.get(Cooldowns).remaining.get("huozhu", 0.0) > 0.0, "读档前不在冷却中"
+        with tempfile.TemporaryDirectory() as tmp:
+            SaveStore(tmp).write(session, "slot1")
+            SaveStore(tmp).load(session, "slot1")
+        assert mage.get(Cooldowns).remaining.get("huozhu", 0.0) == 0.0, "读档没清冷却"
+        assert can_cast(mage, DATA, "huozhu") == (True, "ok"), can_cast(mage, DATA, "huozhu")
+        px, py = mage.get(Position).x, mage.get(Position).y
+        mob3 = spawn_monster(session.world, DATA, "ji", x=px + 2, y=py)
+        mp1 = mage.get(Vitals).mp
+        session.cast_skill(mage, "huozhu", mob3)
+        session.step(1)
+        assert mage.get(Vitals).mp < mp1, "读档后第 1 刻没能施放"
     finally:
         session.shutdown()
 

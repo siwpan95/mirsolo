@@ -56,6 +56,14 @@ from mirsolo.items.equipment import equip
 from mirsolo.progression.exp import apply_growth
 from mirsolo.save import SCHEMA_VERSION, SaveStore, codec, schema
 from mirsolo.save.codec import SaveError, checksum
+from mirsolo.siege.campaign import (
+    KEY_SIEGE,
+    RUNNING,
+    WON,
+    SiegeState,
+    siege_status,
+    start_siege,
+)
 
 CASES = []
 DATA = GameData.load()
@@ -240,6 +248,174 @@ def test_world_side_tick_map_and_serial_survive():
             assert other.map_id == "biqi_field", other.map_id
             # entity_serial 只增不减：读档后从旧值续上，不能归零
             assert int(other.world.get_data(KEY_ENTITY_SERIAL, 0)) >= serial_before
+        finally:
+            other.shutdown()
+    finally:
+        session.shutdown()
+
+
+# ── 1b. 攻城战役状态（P0-F3：可选键 siege_state）─────────────
+
+#: ``sabak`` 三波的字面量（见 data/sieges.json）：外城 1200 / 内城 1800 / 旗台 2600
+SIEGE_WAVE_HP = (1200, 1800, 2600)
+SIEGE_WAVE_GUARDS = (7, 7, 8)
+
+
+def _siege_session():
+    """空图攻城会话（不铺常规怪，免得野外怪混进守军计数）。"""
+    session = build_session(data=DATA, seed=SEED, map_id="biqi_field")
+    player = populate(session, player_class="warrior", with_spawns=False)["player"]
+    return session, player
+
+
+@case
+def test_siege_state_survives_save_and_load():
+    """打到第二波存盘 → 读档 → 波次/状态/目标 eid 一字不差，第二波重新铺满。
+
+    去掉 ``dump_world``/``load_world`` 里的 ``siege_state`` 这一段，本用例会红：
+    读档后 ``siege_status()`` 直接是 ``None``（= 战役凭空消失，玩家白打一场）。
+    """
+    session, _ = _siege_session()
+    tmp = _tmpdir()
+    try:
+        started = start_siege(session, "sabak")
+        world = session.world
+        # 打掉外城城门 → 进第二波（1800 血 / 7 个守军）
+        world.get_entity(started["objective"]).get(Vitals).hp = 0
+        session.step(1)
+        before = siege_status(world)
+        assert before["wave"] == 1, before
+        assert before["status"] == RUNNING, before
+        assert before["objective_max"] == SIEGE_WAVE_HP[1], before
+        objective_eid = world.get_data(KEY_SIEGE).objective_id
+
+        store = SaveStore(tmp)
+        store.write(session, "slot1")
+        raw = json.loads((Path(tmp) / "slot1.json").read_text(encoding="utf-8"))
+        # 存档里必须是**显式八字段**，不是把 dataclass 的 __dict__ 倒进去
+        assert KEY_SIEGE in raw["world"], "存档世界段里没有战役状态"
+        assert set(raw["world"][KEY_SIEGE]) == {
+            "siege_id", "map_id", "wave", "started_tick",
+            "status", "objective_id", "last_reinforce_tick", "reinforced",
+        }, raw["world"][KEY_SIEGE]
+        assert raw["world"][KEY_SIEGE]["wave"] == 1, raw["world"][KEY_SIEGE]
+        assert raw["world"][KEY_SIEGE]["siege_id"] == "sabak", raw["world"][KEY_SIEGE]
+
+        other = build_session(data=DATA, seed=SEED, map_id="biqi_field")
+        populate(other, player_class="warrior", with_spawns=False)
+        try:
+            store.load(other, "slot1")
+            after = siege_status(other.world)
+            assert after is not None, "读档后战役消失了"
+            assert after["siege"] == before["siege"], after
+            assert after["wave"] == before["wave"], (after["wave"], before["wave"])
+            assert after["status"] == before["status"], after
+            assert other.world.get_data(KEY_SIEGE).objective_id == objective_eid
+            assert after["objective_max"] == SIEGE_WAVE_HP[1], after
+            # 目标实体按当前波次重铺了，且是同一个 eid
+            objective = other.world.get_entity(objective_eid)
+            assert objective is not None, objective_eid
+            assert objective.get(Vitals).max_hp == SIEGE_WAVE_HP[1]
+            assert after["guards_alive"] == SIEGE_WAVE_GUARDS[1], after
+        finally:
+            other.shutdown()
+    finally:
+        session.shutdown()
+
+
+@case
+def test_siege_fields_are_enumerated_not_serialized_via_dict():
+    """八个字段必须**逐个显式**列出，不是 ``__dict__`` 倒进去。
+
+    这条在"键集合恰好相等"时测不出来（``vars()`` 今天也会给同样八个键），
+    所以换两个能真正分辨的角度：
+    1. 顺序 —— ``vars()`` 是定义顺序，显式表是本文件写下的顺序（未来加了分组/注释就不同）；
+    2. 新增字段 —— 给类挂一个不该进档的字段，``__dict__`` 会带出去，显式表不会。
+    """
+    import dataclasses
+
+    names = [name for name, _ in codec._SIEGE_FIELDS]
+    assert names == [
+        "siege_id", "map_id", "wave", "started_tick", "status",
+        "objective_id", "last_reinforce_tick", "reinforced",
+    ], names
+    # 八个字段一个不多一个不少（漏字段 = 读档丢状态，多字段 = 存了派生值）
+    assert sorted(names) == sorted(f.name for f in dataclasses.fields(SiegeState)), names
+    # 每种类型码都必须显式给出，不允许留空让代码去猜
+    assert all(code in ("i", "s", "s?") for _, code in codec._SIEGE_FIELDS)
+
+    session, _ = _session()
+    try:
+        world = session.world
+        state = SiegeState(siege_id="sabak", map_id="sabak", wave=1)
+        state.scratch = "不该进存档"          # 模拟以后新加的内部字段
+        world.set_data(KEY_SIEGE, state)
+        blob = codec.dump_world(session)
+        assert blob[KEY_SIEGE] is not None
+        assert "scratch" not in blob[KEY_SIEGE], blob[KEY_SIEGE]
+        assert set(blob[KEY_SIEGE]) == set(names), blob[KEY_SIEGE]
+    finally:
+        session.shutdown()
+
+
+@case
+def test_siege_state_absent_in_old_save_means_no_campaign():
+    """旧档（没有 ``siege_state`` 键）必须照读，读出来的语义是"此刻没有攻城"。
+
+    这就是 ``SCHEMA_VERSION`` 维持在 1 的理由：缺键 = 现状，不是坏档。
+    """
+    session, player = _session()
+    tmp = _tmpdir()
+    try:
+        _rich_player(session, player)
+        store = SaveStore(tmp)
+        store.write(session, "slot1")
+        path = Path(tmp) / "slot1.json"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        del raw["world"][KEY_SIEGE]          # 模拟加这个键之前写下的档
+        raw["checksum"] = checksum(raw)
+        path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+
+        other = build_session(data=DATA, seed=SEED, map_id="biqi_field")
+        populate(other, player_class="warrior")
+        try:
+            store.load(other, "slot1")        # 不能抛
+            assert other.world.get_data(KEY_SIEGE) is None
+            assert siege_status(other.world) is None
+            # 旧档里该有的东西一样没少
+            assert other.world.get_data("current_map") == "biqi_field"
+            assert other.world.get_data("seed") == SEED
+        finally:
+            other.shutdown()
+    finally:
+        session.shutdown()
+
+
+@case
+def test_finished_siege_survives_without_respawning_entities():
+    """打赢了再存 → 读档后仍记着"这一场赢了"，但不会把城门又立起来。"""
+    session, _ = _siege_session()
+    tmp = _tmpdir()
+    try:
+        start_siege(session, "sabak")
+        world = session.world
+        for _ in range(len(SIEGE_WAVE_HP)):
+            current = world.get_data(KEY_SIEGE).objective_id
+            world.get_entity(current).get(Vitals).hp = 0
+            session.step(1)
+        assert siege_status(world)["status"] == WON, siege_status(world)
+
+        store = SaveStore(tmp)
+        store.write(session, "slot1")
+        other = build_session(data=DATA, seed=SEED, map_id="biqi_field")
+        populate(other, player_class="warrior", with_spawns=False)
+        try:
+            store.load(other, "slot1")
+            status = siege_status(other.world)
+            assert status is not None and status["status"] == WON, status
+            leftovers = [e for e in other.world.list_entity_ids()
+                         if e.startswith(("siege_obj:", "siege_guard:"))]
+            assert leftovers == [], leftovers
         finally:
             other.shutdown()
     finally:

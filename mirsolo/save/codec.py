@@ -62,6 +62,7 @@ from mirsolo.determinism import fnv1a64
 from mirsolo.items.equipment import recompute
 from mirsolo.progression.exp import apply_growth
 from mirsolo.save import schema
+from mirsolo.skills.engine import reset_cooldowns
 
 #: 坐标定点精度：1/1000 瓦片
 POS_SCALE = 1000
@@ -291,6 +292,52 @@ def dump_world(session) -> dict:
             ticks[f"{map_id}|{monster_id}"] = int(at)
     serial = int(getattr(spawner, "_serial", 0)) if spawner is not None else 0
     out[schema.SPAWN_STATE_KEY] = {"last": ticks, "serial": serial}
+    out[_SIEGE_KEY] = _dump_siege(world)
+    return out
+
+
+# ── 攻城战役状态（可选键，见 schema.OPTIONAL_WORLD_KEYS）──────
+#: 与 ``siege.campaign.KEY_SIEGE`` 同值。这里写字面量而不是 import：
+#: ``campaign`` 会 import ``world.travel``，而 ``codec`` 是存档层，
+#: 不该为了一个键名把玩法侧的整条依赖链拉进来（导入在函数内做，见下）。
+_SIEGE_KEY = schema.OPTIONAL_WORLD_KEYS[0]
+
+#: ``SiegeState`` 的落盘字段 —— **逐个显式列出**，不用 ``dataclass.__dict__``：
+#: ``__dict__`` 会把"以后新加的内部字段"悄悄带进存档，改了语义也没人发现。
+#: 类型码：``i`` 整数 / ``s`` 字符串 / ``s?`` 字符串或 None。
+#: 空行分组：前五项是"这一场战役是什么"，后三项是"打到哪了"。
+_SIEGE_FIELDS: tuple[tuple[str, str], ...] = (
+    ("siege_id", "s"),
+    ("map_id", "s"),
+    ("wave", "i"),
+    ("started_tick", "i"),
+    ("status", "s"),
+
+    ("objective_id", "s?"),   # None = 当前没有目标（终局态）
+    ("last_reinforce_tick", "i"),
+    ("reinforced", "i"),
+)
+
+
+def _dump_siege(world: World) -> dict | None:
+    """把战役状态写成纯 JSON；没有战役就是 ``None``。
+
+    ``objective_id`` 也存：它是**当前那一波**目标的 eid。目标实体本身不落盘
+    （与怪物同一取舍），读档时按 ``wave`` 重铺——``spawn_objective`` 的 eid
+    只由 ``map`` + ``wave`` 决定，所以重铺出来的 eid 与存档里的是同一个。
+    """
+    state = world.get_data(_SIEGE_KEY)
+    if state is None:
+        return None
+    out: dict[str, Any] = {}
+    for name, code in _SIEGE_FIELDS:
+        value = getattr(state, name)
+        if code == "s?":
+            out[name] = None if value is None else str(value)
+        elif code == "i":
+            out[name] = int(value)
+        else:
+            out[name] = str(value)
     return out
 
 
@@ -374,9 +421,9 @@ def _set_component(entity: Entity, name: str, blob: dict) -> None:
 
 def _clear_runtime(entity: Entity) -> None:
     """清空运行时组件：读档 = 重新进图，这一刻的战斗状态已经过去了。"""
-    comp = entity.get(Cooldowns)
-    if comp is not None:
-        comp.remaining.clear()
+    # 技能冷却与换图走同一个函数（skills.engine.reset_cooldowns），
+    # 两边各写一份清除逻辑迟早分叉——见 world/spawn.py 顶部。
+    reset_cooldowns(entity)
     for name in ("Shield", "Poison", "Invisible", "Downed", "Paralysis"):
         cls = _COMPONENT_CLASSES.get(name)
         if cls is None:
@@ -462,7 +509,12 @@ def load_player(session, comps: dict) -> Entity:
 
 
 def load_world(session, blob: dict) -> None:
-    """把世界段落回会话，并清场重铺怪（与 ``travel`` 走同一条铺怪路径）。"""
+    """把世界段落回会话，并清场重铺怪（与 ``travel`` 走同一条铺怪路径）。
+
+    必选键（``schema.WORLD_KEYS``）缺了就报 ``missing_field``；可选键
+    （``schema.OPTIONAL_WORLD_KEYS``）缺了取默认值 —— 旧档能读，见 schema 里
+    ``SCHEMA_VERSION`` 那段注释。
+    """
     world = session.world
     for key in schema.WORLD_KEYS:
         if key not in blob:
@@ -495,7 +547,6 @@ def load_world(session, blob: dict) -> None:
     from mirsolo.world.spawn import spawn_map_monsters
 
     spawn_map_monsters(world, session.data, session.map_id, session.seed)
-
     spawn_state = blob.get(schema.SPAWN_STATE_KEY) or {}
     spawner = world.get_system(RespawnSystem)
     if spawner is not None:
@@ -504,6 +555,52 @@ def load_world(session, blob: dict) -> None:
             map_id, _, monster_id = str(packed).partition("|")
             spawner._last_spawn_tick[(map_id, monster_id)] = int(at)
         spawner._serial = int(spawn_state.get("serial", 0))
+
+    # 战役状态最后落：它要按当前波次重铺目标/守军，必须排在清场与铺怪之后
+    _load_siege(session, blob.get(_SIEGE_KEY))
+
+
+def _load_siege(session, raw) -> None:
+    """把战役状态写回世界；``None`` = 此刻没有战役（旧档缺键也走这里）。
+
+    目标与守军实体**不逐只落盘**（与怪物同一取舍），按存档里的 ``wave``
+    重铺一波：``spawn_objective`` 的 eid 只由 ``map`` + ``wave`` 决定，
+    ``spawn_wave_guards`` 的坐标只由 ``Rng(seed, "siege:<map>:<wave>:<serial>")``
+    决定 —— 所以重铺出来的一波与存档里那一波逐只相同，不依赖 int id。
+    """
+    from mirsolo.siege import campaign
+
+    world = session.world
+    if not isinstance(raw, dict):
+        # 缺键（旧档）或明确的 null（已结束/没有战役）
+        world.set_data(_SIEGE_KEY, None)
+        return
+    values: dict[str, Any] = {}
+    for name, code in _SIEGE_FIELDS:
+        if name not in raw:
+            raise SaveError("missing_field", f"战役段缺少 {name}")
+        value = raw[name]
+        if code == "s?":
+            values[name] = None if value is None else str(value)
+        elif code == "i":
+            try:
+                values[name] = int(value)
+            except (TypeError, ValueError):
+                raise SaveError("bad_type", f"战役段 {name} 不是整数") from None
+        else:
+            values[name] = str(value)
+    state = campaign.SiegeState(**values)
+    world.set_data(_SIEGE_KEY, state)
+
+    spec = session.data.sieges["sieges"].get(state.siege_id)
+    if spec is None or state.finished:
+        return  # 数据表里没这场战役 / 已经赢了输了：不留实体，状态照读
+    objective = campaign.spawn_objective(world, session.data, spec, state.wave,
+                                         eid=state.objective_id)
+    campaign.spawn_wave_guards(world, session.data, spec, state.wave,
+                               seed=session.seed)
+    if state.objective_id is None:
+        state.objective_id = objective.eid
 
 
 def load_session(session, payload: dict) -> dict:

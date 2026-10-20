@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from mirsolo.actor.factory import spawn_monster
+from mirsolo.actor.systems import KEY_INTENTS
 from mirsolo.bootstrap import build_session, populate
 from mirsolo.components import Identity, Position, Vitals
 from mirsolo.data.loader import GameData
@@ -219,6 +220,33 @@ def test_travel_is_reversible_and_deterministic():
                         for e in session.world.each(Identity)
                         if e.get(Identity).kind == "monster")
         assert first == second, "两次进同一张图的怪配置不一致"
+    finally:
+        session.shutdown()
+
+
+@case
+def test_travel_drops_stale_attack_intents():
+    """换图要把指向旧图实体的攻击意图**一起清掉**。
+
+    ``AttackSystem`` 只消费"目标还活着"的意图，目标已死的那条是 ``continue``
+    ——**留在队列里**（``actor/systems.py`` 末尾只剔除已处理的）。所以打死的怪
+    越多，队列攒得越长；换图不清，新图第一刻就会对着已经不在世界里的实体
+    结算（伤害、事件、甚至击杀奖励都照算）。
+    """
+    session, player = _session("biqi_field", spawns=True)
+    try:
+        mob = next(e for e in session.world.each(Identity)
+                   if e.get(Identity).kind == "monster")
+        mob.get(Vitals).hp = 0                    # 目标已死 → 意图不会被消费，会攒住
+        for _ in range(3):
+            session.queue_attack(player, mob)
+        session.step(1)
+        stale = session.world.get_data(KEY_INTENTS)
+        assert len(stale) == 3, f"死亡目标的意图应该留在队列里（实测 {len(stale)}）"
+
+        travel(session, "biqi_mine_1")
+        left = session.world.get_data(KEY_INTENTS)
+        assert left == [], f"换图后队列还留着 {len(left)} 条指向旧图实体的意图"
     finally:
         session.shutdown()
 

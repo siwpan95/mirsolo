@@ -124,6 +124,26 @@ def can_cast(entity: Entity, data: GameData, skill_id: str) -> tuple[bool, str]:
     return True, "ok"
 
 
+def reset_cooldowns(entity: Entity) -> None:
+    """清空技能冷却账 —— 换图与读档**共用**这一处。
+
+    语义是"进图即清"：冷却记的是"此刻正在发生什么"（上一次出手的余韵），
+    而换图 / 读档都等于重新进图，进图之前攒下的那截冷却不该跟着人走。
+
+    账本是 ``Cooldowns.remaining``（``skill_id -> 剩余秒``），存的是**相对
+    剩余量**而不是"第几刻解锁"，所以不管换图后 ``tick`` 继续往前走、还是读档
+    后 ``tick`` 回到存档里记的值，直接清零都成立——不需要挪刻度，也不存在
+    "绝对刻号对不上"的问题（``PotionState.ready_at`` 那种绝对刻才是另一回事）。
+
+    为什么必须是共享函数、而不是换图与读档各写一份 ``clear()``：铺怪已经踩过
+    这同一个坑（见 :mod:`mirsolo.world.spawn` 顶部）——两条路径分叉出的差异
+    只在很久以后才被发现。
+    """
+    comp = entity.get(Cooldowns)
+    if comp is not None:
+        comp.remaining.clear()
+
+
 def _within(pos_a: Position, pos_b: Position, rng: int) -> bool:
     return max(abs(pos_a.x - pos_b.x), abs(pos_a.y - pos_b.y)) <= rng
 
