@@ -1429,6 +1429,28 @@
       "tier": "common",
       "kind": "ore",
       "auction": null
+    },
+    "blessing_oil": {
+      "name": "祝福油",
+      "kind": "blessing",
+      "class": [
+        "warrior",
+        "mage",
+        "taoist"
+      ],
+      "slot": null,
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 2,
+      "durability": 0,
+      "level_req": 1,
+      "price": 3000,
+      "tier": "rare",
+      "auction": null
     }
   }
 }

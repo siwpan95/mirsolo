@@ -163,6 +163,41 @@ class Wear(Component):
 
 
 @dataclass
+class Upgrade(Component):
+    """武器升级账本（P3-S5）：``item_id -> 等级`` + ``item_id -> 累计尝试次数``。
+
+    按 ``item_id`` 记的理由与 :class:`Wear` 完全一样（背包堆叠、没有实物
+    实例 id），但语义反过来：这里记的是"这一类武器里**最好**的那把"。
+    于是"升到 +3 再卖掉、买一把同款"拿回来是 +0——等级不跟着玩家走，
+    只跟着"这件东西有没有离开过手"。
+
+    ``attempts`` **只增不减**，因为它给随机流名用
+    （``upgrade:{item_id}:{attempt}``）：一旦清零，同一个流名就会被重用，
+    读档重来会掷出一模一样的结果——那正是"死了读档撤销惩罚"的同款空子。
+    P3-S6 的存档读写层必须把它一起存下来。
+    """
+
+    levels: dict[str, int] = field(default_factory=dict)
+    attempts: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
+class Blessing(Component):
+    """祝福油账本（P3-S5）：``item_id -> 祝福等级``，**可以为负 = 诅咒**。
+
+    与 :class:`Upgrade` 分开存而不是塞进同一个字典：两条账本各有自己的
+    随机流（``bless:{item_id}:{attempt}``）与上下界（+7 / -7），
+    合起来迟早要加前缀区分，分开反而少一层转译。
+
+    负等级不是"没有祝福"，它会在 ``equipment.recompute`` 里直接**减掉**幸运：
+    一把被诅咒到 -3 的赤月魔剑（自带幸运 7）只剩 4 点幸运。
+    """
+
+    levels: dict[str, int] = field(default_factory=dict)
+    attempts: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
 class DeathLedger(Component):
     """死亡账本：**跨次数、跨读档**的累计记账（P3-S2）。
 

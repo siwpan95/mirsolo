@@ -25,11 +25,14 @@
     python -m mirsolo.cli.play --map biqi_mine_1 --level 30 --gear --wear 0 \
         --ore --panel shop --gold 5000 --shot x.png
         # 验收：卖矿（商店页底部左右两行：「修理全部」+「卖掉全部矿石」）
+    python -m mirsolo.cli.play --level 30 --gear --gold 20000 --forge \
+        --panel forge --shot x.png
+        # 验收：锻造（左武器升级 / 右祝福油，两行都写清代价与成功率）
 
 按键：WASD / 方向键移动，空格攻击最近的相邻怪，1-5 施放技能，滚轮缩放，
 Q 喝红药 / E 喝蓝药（血/蓝低于阈值时系统也会自己喝，不按键也行），
 站到矿点上按 F 开工挖矿（再按一次收工，挪一步也会自动收工），
-C 角色 / M 佣兵 / J 图鉴 / N 拍卖行 / B 商店 / V 仓库（点行操作），
+C 角色 / M 佣兵 / J 图鉴 / N 拍卖行 / B 商店 / V 仓库 / G 锻造（点行操作），
 ESC 关面板 / 再按退出。走上传送点自动换图。
 
 ``--level`` / ``--learn`` / ``--gear`` / ``--gold`` / ``--merc`` / ``--codex`` /
@@ -70,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="验收用：发放并把该等级能穿的最好一套装备穿上（走 equip）")
     parser.add_argument("--panel",
                         choices=("character", "mercenary", "codex", "auction",
-                                 "shop", "warehouse"),
+                                 "shop", "warehouse", "forge"),
                         default=None, help="验收用：开窗即打开该面板（截图看版式）")
     parser.add_argument("--gold", type=int, default=0,
                         help="验收用：给一笔金币（否则买不起/雇不起的行全灰，看不出版式）")
@@ -92,6 +95,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="验收用：送到本图第一个矿点、手握鹤嘴锄并按下 F")
     parser.add_argument("--ore", action="store_true",
                         help="验收用：每种矿石塞一块进背包（看商店页的卖矿行）")
+    parser.add_argument("--forge", action="store_true",
+                        help="验收用：穿一把能升级的武器 + 塞黑铁矿石与祝福油")
     parser.add_argument("--siege", default=None, metavar="ID",
                         help="验收用：开窗即开战（如 sabak），会按战役自己的 map 换图")
     args = parser.parse_args(argv)
@@ -107,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
                mercs=tuple(args.merc), codex_kills=args.codex, bag=args.bag,
                wear_left=args.wear, dead=args.die,
                hurt=args.hurt, potions=args.potions,
-               mine=args.mine, ore=args.ore)
+               mine=args.mine, ore=args.ore, forge=args.forge)
     except Exception as exc:  # noqa: BLE001 - 开窗失败要给可执行的提示，而不是堆栈
         print(f"[FAIL] 无法启动窗口: {type(exc).__name__}: {exc}", file=sys.stderr)
         print("提示：无显示器/无 GL 时请用 `python -m mirsolo.cli.smoke` 做逻辑验收。",

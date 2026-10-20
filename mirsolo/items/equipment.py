@@ -18,14 +18,18 @@ from mirsolo.combat.formulas import clamp_luck
 from mirsolo.components import (
     Attributes,
     Bag,
+    Blessing,
     Body,
     Identity,
     Loadout,
     Progression,
+    Upgrade,
     Vitals,
     Wear,
 )
 from mirsolo.data.loader import GameData
+from mirsolo.items import blessing as blessing_rules
+from mirsolo.items import upgrade as upgrade_rules
 from mirsolo.items import wear
 from mirsolo.progression.exp import grow_attributes
 
@@ -133,10 +137,13 @@ def recompute(entity: Entity, data: GameData) -> None:
     accuracy = int(base["accuracy"])
     # 幸运：只有 weapon / necklace 两个槽会给（由 verify.py 的 luck-sources 门禁保证），
     # 所以这里可以放心地把**所有槽**的 luck 加起来——加错了门禁会先红。
+    # 祝福等级（P3-S5）在此之上再加减，且**可以为负**：诅咒是真的会拖低总幸运。
     luck = 0
     gear_weight = 0
     wear_book = entity.get(Wear)
-    for item_id in slots.values():
+    up_book = entity.get(Upgrade)
+    bless_book = entity.get(Blessing)
+    for slot, item_id in slots.items():
         spec = data.items["items"].get(item_id)
         if spec is None:
             continue  # 数据被删时不要让存档崩，直接跳过
@@ -152,6 +159,19 @@ def recompute(entity: Entity, data: GameData) -> None:
         mac = _add_range(mac, spec.get("mac"))
         accuracy += int(spec.get("accuracy", 0) or 0)
         luck += int(spec.get("luck", 0) or 0)
+        if slot == "weapon":
+            # 升级只加**主属性**那一条（atk / mc / sc 三者互斥），
+            # 加在哪一条由数据决定，不由槽位决定——法杖加的是魔法力。
+            stat = upgrade_rules.main_stat(data, item_id)
+            bonus = upgrade_rules.bonus_of(data, up_book, item_id)
+            if bonus != (0, 0):
+                if stat == "atk":
+                    dc = _add_range(dc, bonus)
+                elif stat == "mc":
+                    mc = _add_range(mc, bonus)
+                elif stat == "sc":
+                    sc = _add_range(sc, bonus)
+            luck += blessing_rules.level_of(bless_book, item_id)
 
     # 幸运在这里**只汇总、不生效**：真正消费它的是 ``formulas.lucky_range``。
     # 两者中间隔着 resolver，所以这条赋值被摘掉时必须有集成测试变红

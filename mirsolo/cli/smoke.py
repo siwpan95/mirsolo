@@ -21,12 +21,14 @@ import sys
 from mirsolo.bootstrap import build_session, populate
 from mirsolo.components import (
     Bag,
+    Blessing,
     DeathLedger,
     Identity,
     Mining,
     Position,
     PotionState,
     Progression,
+    Upgrade,
     Vitals,
     Wallet,
 )
@@ -112,6 +114,16 @@ def run_simulation(*, ticks: int, seed: int, map_id: str, player_class: str) -> 
                     if data.items["items"].get(k, {}).get("kind") == "consumable"}
     pstate = player.get(PotionState)
     mstate = player.get(Mining)
+    # 打造口径：等级账本只记真正动过刀的装备（没升级的武器不在里面）。
+    # headless 没人按 G，所以这里正常应当是空的——有数就等于"锻造漏进了自动流程"。
+    up_state = player.get(Upgrade)
+    bless_state = player.get(Blessing)
+    up_levels = dict(sorted((up_state.levels or {}).items())) if up_state else {}
+    up_attempts = dict(sorted((up_state.attempts or {}).items())) if up_state else {}
+    bless_levels = dict(sorted((bless_state.levels or {}).items())) if bless_state else {}
+    bless_attempts = dict(sorted((bless_state.attempts or {}).items())) if bless_state else {}
+    up_total = sum(up_attempts.values())
+    bless_total = sum(bless_attempts.values())
     summary = {
         "ok": True,
         "seed": seed,
@@ -141,6 +153,12 @@ def run_simulation(*, ticks: int, seed: int, map_id: str, player_class: str) -> 
         "ore_weight": mining.carried_ore_weight(player, data),
         "ore_value": ore_value(data, player),
         "mining_active": bool(mstate.active) if mstate is not None else False,
+        # 打造：冒烟里没人按 G，账本有数只能说明打怪自己把武器练了（不该发生）
+        "upgrade_levels": up_levels,
+        "upgrade_attempts": up_attempts,
+        "bless_levels": bless_levels,
+        "bless_attempts": bless_attempts,
+        "forge_happened": up_total > 0 or bless_total > 0,
     }
     session.shutdown()
     return summary
@@ -186,6 +204,9 @@ def main(argv: list[str] | None = None) -> int:
                   f"（{summary['ores_left']}）  重 {summary['ore_weight']}"
                   f"  可卖 {summary['ore_value']} 金"
                   f"{'  （挖矿中）' if summary['mining_active'] else ''}")
+        # 打造同理：一局没动过锤子就不出这一行
+        if summary["forge_happened"]:
+            print(f"打造：升级 {summary['upgrade_attempts']}  幸运 {summary['bless_attempts']}")
 
     if summary["kills"] == 0:
         print("[FAIL] 推演期间无任何击杀——战斗链路可能断了", file=sys.stderr)

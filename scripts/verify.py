@@ -664,17 +664,38 @@ def gate_potion_and_sustain(data=None) -> tuple[bool, str]:
         # 只是顺路扫一遍，认不出来就当"不是药水"，由"每个怪都掉药"报出来。
         return item_table.get(item_id, {}).get("kind", "")
 
+    #: 末尾允许连续出现的"补给类"：药水（每个怪都有）+ 祝福油（P3-S5，只有 BOSS 有）。
+    #: 它们都是**后来追加**的组，只能往后站——纪律的本质是"新组不许插队"，
+    #: 不是"药水必须最后"。
+    SUPPLY_KINDS = {"consumable", "blessing"}
+
     for monster_id, table in sorted(data.drops["drops"].items()):
         groups = table.get("groups", [])
         if not groups:
             missing.append(monster_id)
             continue
-        last = groups[-1].get("entries", [])
-        if not last or not all(kind_of(e["item"]) == "consumable" for e in last):
-            missing.append(monster_id)
-        for group in groups[:-1]:
-            if any(kind_of(e["item"]) == "consumable"
-                   for e in group.get("entries", [])):
+        kinds_list = [{kind_of(e["item"]) for e in g.get("entries", [])}
+                      for g in groups]
+        supply = 0
+        for kinds in reversed(kinds_list):
+            if kinds and kinds <= SUPPLY_KINDS:
+                supply += 1
+            else:
+                break
+        if supply == 0:
+            missing.append(monster_id)  # 连一组补给都没有（药水就该人人有）
+            continue
+        # 补给组之前的组里不许混进补给类：那说明有人插到前面去了
+        for kinds in kinds_list[:len(kinds_list) - supply]:
+            if kinds & SUPPLY_KINDS:
+                misplaced.append(monster_id)
+                break
+        # 药水必须在祝福油**之前**：祝福油更晚出现，只能排后面
+        seen_blessing = False
+        for kinds in kinds_list[len(kinds_list) - supply:]:
+            if "blessing" in kinds:
+                seen_blessing = True
+            elif seen_blessing and kinds & SUPPLY_KINDS:
                 misplaced.append(monster_id)
                 break
     if missing:
@@ -868,6 +889,175 @@ def gate_mining_and_ores(data=None) -> tuple[bool, str]:
                   f"{with_mines} 张图有矿点且不压传送点；200 刻真挖出矿并磨了锄头")
 
 
+def gate_forge_and_blessing(data=None) -> tuple[bool, str]:
+    """武器升级与祝福油：表齐、纯度真在决定成败、诅咒真的会压上限。
+
+    最容易悄悄失效的四条：
+
+    * **纯度决定成败**这条链路只有走一遍才知道通不通：``purity_bp`` 少一档，
+      ``success_bp`` 就返回 0，玩家揣着纯度 70 的矿石点了半天没反应。
+    * **每把武器恰好一条主属性**。写了两条，升级只加第一条；写零条，
+      升级加了什么也看不出来。
+    * **诅咒要真的压上限**。``clamp_luck`` 只钳 ``[0, 9]`` 的那段时间里负值被
+      归零，诅咒对普通武器等于"只亏一瓶油"——这条直接比对两端的上限。
+    * **祝福油两条腿**。只掉不卖 = 不刷 BOSS 的人一辈子摸不到幸运；
+      只卖不掉 = 幸运变成纯金币商品。
+    """
+    if data is None:
+        from mirsolo.data.loader import GameData
+
+        data = GameData.load()
+    from mirsolo.actor.factory import spawn_player
+    from mirsolo.bootstrap import build_session
+    from mirsolo.combat.formulas import lucky_range
+    from mirsolo.components import Bag, Progression, Upgrade, Wallet
+    from mirsolo.items import blessing, upgrade
+    from mirsolo.items.equipment import equip
+    from mirsolo.presentation.panels import shop_stock
+    from mirsolo.progression.exp import apply_growth
+
+    bad: list[str] = []
+    table = data.items["items"]
+    spec = data.upgrades.get("upgrade") or {}
+    bspec = data.upgrades.get("blessing") or {}
+    if not spec or not bspec:
+        return False, "upgrades.json 缺 upgrade / blessing 段"
+
+    # 1) 升级表：连号、末档到顶、纯度门槛在表里、服务费不超过买一把新的
+    rows = spec.get("levels") or []
+    max_level = int(spec.get("max_level", 0) or 0)
+    purity_bp = {int(k): int(v) for k, v in (spec.get("purity_bp") or {}).items()}
+    if max_level <= 0:
+        bad.append(f"max_level={max_level}（升级表没有上限）")
+    if len(rows) != max_level:
+        bad.append(f"档位 {len(rows)} 条，与 max_level={max_level} 不符")
+    for index, row in enumerate(rows):
+        if int(row.get("from", -1)) != index or int(row.get("to", -1)) != index + 1:
+            bad.append(f"档位 {index} 不连号：{row.get('from')}→{row.get('to')}")
+        if int(row.get("min_purity", 0)) not in purity_bp:
+            bad.append(f"档位 {index} 的门槛纯度 {row.get('min_purity')} 不在 purity_bp 里")
+        if int(row.get("ore", 0)) <= 0:
+            bad.append(f"档位 {index} 矿石数为 {row.get('ore')}")
+        permille = int(row.get("gold_permille", 0))
+        if not 0 < permille <= 1000:
+            bad.append(f"档位 {index} gold_permille={permille}（服务费不该贵过买一把新的）")
+    if rows and int(rows[-1].get("to", 0)) != max_level:
+        bad.append(f"末档到 {rows[-1].get('to')}，不是 max_level={max_level}")
+
+    # 2) 纯度 → 成功率：每一档都得有得赌，最高纯度在 +0 必须必成
+    if not purity_bp:
+        bad.append("purity_bp 是空的（纯度决定成败这条就断了）")
+    top = max(purity_bp) if purity_bp else 0
+    for level in range(max_level):
+        for purity in sorted(purity_bp):
+            bp = upgrade.success_bp(data, level, purity)
+            if not 0 < bp <= 10000:
+                bad.append(f"+{level} 配纯度 {purity} 的成功率是 {bp}")
+    if purity_bp and upgrade.success_bp(data, 0, top) != 10000:
+        bad.append(f"+0 配最高纯度 {top} 只有 "
+                   f"{upgrade.success_bp(data, 0, top)}（第一级不该还赌）")
+    if purity_bp:
+        lowest = min(purity_bp)
+        if upgrade.success_bp(data, max_level - 1, lowest) <= 0:
+            bad.append(f"顶档配最低纯度 {lowest} 成功率不是正数（地板没兜住）")
+
+    # 3) 每把武器恰好一条主属性；工具一律不能升级
+    weapons = [iid for iid, s in table.items() if s.get("slot") == "weapon"]
+    if not weapons:
+        bad.append("没有任何武器（升级无从谈起）")
+    for item_id in sorted(weapons):
+        stats = [k for k in ("atk", "mc", "sc") if table[item_id].get(k)]
+        if len(stats) != 1:
+            bad.append(f"{item_id} 有 {len(stats)} 条主属性（应为 1）：{stats}")
+        if table[item_id].get("tool"):
+            if upgrade.is_upgradable(data, item_id):
+                bad.append(f"{item_id} 是工具却能升级")
+        elif not upgrade.is_upgradable(data, item_id):
+            bad.append(f"{item_id} 是武器却不能升级（主属性没接上？）")
+
+    # 4) 祝福表：值域 + 诅咒必须真的存在（min 为负）
+    bmax = int(bspec.get("max", 0) or 0)
+    bmin = int(bspec.get("min", 0) or 0)
+    base_bp = int(bspec.get("base_bp", 0) or 0)
+    step_bp = int(bspec.get("step_bp", 0) or 0)
+    min_bp = int(bspec.get("min_bp", 0) or 0)
+    if bmax <= 0:
+        bad.append(f"祝福上限 {bmax} 不为正")
+    if bmin >= 0:
+        bad.append(f"祝福下限 {bmin} 不是负数（诅咒就不存在了）")
+    if not 0 < base_bp <= 10000:
+        bad.append(f"祝福基础成功率 {base_bp} 不是万分比")
+    if step_bp <= 0:
+        bad.append(f"祝福递减步长 {step_bp} 不为正")
+    if not 0 < min_bp <= 10000:
+        bad.append(f"祝福成功率地板 {min_bp} 不在万分比区间内")
+    for level in range(bmin, bmax + 1):
+        bp = blessing.success_bp(data, level)
+        if not min_bp <= bp <= 10000:
+            bad.append(f"祝福等级 {level} 的成功率 {bp} 不在 [{min_bp}, 10000] 内")
+
+    # 5) 诅咒要真的压上限（负值被 clamp 归零的那段历史不能再重演）
+    if lucky_range((10, 20), -1)[1] >= lucky_range((10, 20), 0)[1]:
+        bad.append("负幸运没有压低上限（诅咒成了摆设）")
+    if lucky_range((10, 20), 9)[0] <= lucky_range((10, 20), 0)[0]:
+        bad.append("正幸运没有抬高低限（幸运 9 成了摆设）")
+
+    # 6) 祝福油两条腿：商店有售 + 有怪会掉
+    oil = blessing.OIL
+    if oil not in table:
+        bad.append(f"{oil} 不在物品表里")
+    if oil not in shop_stock(data):
+        bad.append(f"{oil} 不上架（不刷 BOSS 的人没有第二条路）")
+    drops_oil = any(
+        entry.get("item") == oil
+        for monster in (data.drops.get("drops") or {}).values()
+        for group in (monster.get("groups") or [])
+        for entry in (group.get("entries") or []))
+    if not drops_oil:
+        bad.append(f"没有任何怪会掉 {oil}（幸运成了纯金币商品）")
+
+    # 7) 真升级一次 + 真抹油一次：表查得再全，链不通也是白搭
+    if not bad:
+        weapon = min((i for i in weapons if upgrade.is_upgradable(data, i)),
+                     key=lambda i: int(table[i].get("level_req", 1) or 1))
+        session = build_session(data=data, seed=1, map_id="biqi_mine_1")
+        try:
+            player = spawn_player(session.world, data, class_id="warrior")
+            player.get(Progression).level = 44
+            apply_growth(player, data.classes["classes"]["warrior"])
+            player.get(Bag).add(weapon, 1)
+            equip(player, data, weapon)
+            player.get(Wallet).gold = 200000   # 服务费要付得起
+            ore_id = next((i for i, s in sorted(table.items())
+                           if s.get("kind") == "ore"
+                           and int(s.get("purity", 0) or 0) == top), None)
+            if ore_id is None:
+                bad.append(f"没有纯度 {top} 的矿石（升级成本落不了地）")
+            else:
+                player.get(Bag).add(ore_id, 2)
+                player.get(Bag).add(oil, 2)
+                got = upgrade.upgrade(player, data, seed=1)
+                if upgrade.attempts_of(player.get(Upgrade), weapon) != 1:
+                    bad.append("升级后尝试次数没 +1（账本没接上）")
+                if int(player.get(Bag).items.get(ore_id, 0)) != 1:
+                    bad.append("升级没扣矿石（先扣后掷这条纪律破了）")
+                bgot = blessing.bless(player, data, seed=1)
+                if int(player.get(Bag).items.get(oil, 0)) != 1:
+                    bad.append("抹油没扣瓶子（先扣后掷这条纪律破了）")
+                if got["level"] < 0 or bgot["level"] < bmin:
+                    bad.append("升级/祝福结果越界")
+        finally:
+            session.shutdown()
+
+    if bad:
+        return False, "; ".join(bad)
+    return True, (f"升级 {max_level} 档，纯度 {sorted(purity_bp)} → "
+                  f"{min(purity_bp.values())}~{max(purity_bp.values())} 万分比；"
+                  f"{len(weapons)} 把武器各一条主属性、工具不可升级；"
+                  f"祝福 {bmin}~{bmax}（诅咒真压上限）；"
+                  f"祝福油商店+掉落两条腿；真升级/真抹油各一次")
+
+
 GATES = [
     ("data-integrity", "九张数据表的引用完整性（掉落/刷新/技能职业/攻城可解析）", gate_data_integrity),
     ("data-files", "data/ 下九张表齐全且是合法 JSON", gate_data_files),
@@ -886,6 +1076,9 @@ GATES = [
     ("mining-and-ores",
      "挖矿：工具与矿石成立、矿脉表口径一致、每锄期望落在区间",
      gate_mining_and_ores),
+    ("forge-and-blessing",
+     "武器升级与祝福油：七档连号、纯度决定成败、诅咒真压上限、油有两条腿",
+     gate_forge_and_blessing),
     ("tests-registered", "run_tests.MODULES ↔ tests/test_*.py 双向一致", gate_tests_registered),
     ("readme-commands", "README 里的 python -m 目标都真实可导入", gate_readme_commands),
     ("readme-tree-real", "README 项目结构里的路径都真实存在", gate_tree_real),
@@ -1224,6 +1417,83 @@ def _selfcheck() -> int:
     else:
         failures += 1
         print(f"  FAIL mining-and-ores 未拦住出矿率为 0（{detail}）")
+
+    # 27) forge-and-blessing：把纯度 100 那档从 purity_bp 里删掉 ——
+    #     顶档的门槛纯度就没了出处，玩家揣着最好的矿石也点不动
+    _saved_p100 = game.upgrades["upgrade"]["purity_bp"].pop("100")
+    ok, detail = gate_forge_and_blessing(game)
+    game.upgrades["upgrade"]["purity_bp"]["100"] = _saved_p100
+    if not ok and "不在 purity_bp 里" in detail:
+        print("  ok   forge-and-blessing 能拦住 purity_bp 缺档（纯度断了链）")
+    else:
+        failures += 1
+        print(f"  FAIL forge-and-blessing 未拦住 purity_bp 缺档（{detail}）")
+
+    # 28) 把祝福下限抬到 0 —— 诅咒这门课就不用上了（当年 clamp 只钳 [0,9] 的现场）
+    _saved_bmin = game.upgrades["blessing"]["min"]
+    game.upgrades["blessing"]["min"] = 0
+    ok, detail = gate_forge_and_blessing(game)
+    game.upgrades["blessing"]["min"] = _saved_bmin
+    if not ok and "不是负数" in detail:
+        print("  ok   forge-and-blessing 能拦住祝福下限不为负（诅咒不能是摆设）")
+    else:
+        failures += 1
+        print(f"  FAIL forge-and-blessing 未拦住祝福下限不为负（{detail}）")
+
+    # 29) 把 CURSE_CAP 压回 0 —— 负幸运被 clamp 归零，诅咒对普通武器零代价
+    from mirsolo.combat import formulas as _fm
+
+    _saved_cap = _fm.CURSE_CAP
+    _fm.CURSE_CAP = 0
+    ok, detail = gate_forge_and_blessing(game)
+    _fm.CURSE_CAP = _saved_cap
+    if not ok and "负幸运没有压低上限" in detail:
+        print("  ok   forge-and-blessing 能拦住诅咒不压上限（负值被归零的老毛病）")
+    else:
+        failures += 1
+        print(f"  FAIL forge-and-blessing 未拦住诅咒不压上限（{detail}）")
+
+    # 30) 把祝福油从所有掉落组里摘掉 —— 幸运就成了纯金币商品
+    from mirsolo.items import blessing as _bless
+
+    _removed: list[tuple[str, int, list]] = []
+    for _mid, _mon in sorted(game.drops["drops"].items()):
+        for _gi, _grp in enumerate(_mon.get("groups") or []):
+            _entries = _grp.get("entries") or []
+            _keep = [e for e in _entries if e.get("item") != _bless.OIL]
+            if len(_keep) != len(_entries):
+                _removed.append((_mid, _gi, list(_entries)))
+                _grp["entries"] = _keep
+    ok, detail = gate_forge_and_blessing(game)
+    for _mid, _gi, _entries in _removed:
+        game.drops["drops"][_mid]["groups"][_gi]["entries"] = _entries
+    if not ok and "没有任何怪会掉" in detail:
+        print("  ok   forge-and-blessing 能拦住祝福油不掉（两条腿不能只剩一条）")
+    else:
+        failures += 1
+        print(f"  FAIL forge-and-blessing 未拦住祝福油不掉（{detail}）")
+
+    # 31) 把服务费抬到 150% —— 升级比直接买一把新的还贵，按钮就是摆设
+    _saved_permille = game.upgrades["upgrade"]["levels"][0]["gold_permille"]
+    game.upgrades["upgrade"]["levels"][0]["gold_permille"] = 1500
+    ok, detail = gate_forge_and_blessing(game)
+    game.upgrades["upgrade"]["levels"][0]["gold_permille"] = _saved_permille
+    if not ok and "服务费" in detail:
+        print("  ok   forge-and-blessing 能拦住服务费贵过买新的（升级按钮不能是摆设）")
+    else:
+        failures += 1
+        print(f"  FAIL forge-and-blessing 未拦住服务费过高（{detail}）")
+
+    # 32) 把祝福油写成矿石 —— 它会被踢出货架，第二条腿当场断掉
+    _saved_kind = game.items["items"][_bless.OIL]["kind"]
+    game.items["items"][_bless.OIL]["kind"] = "ore"
+    ok, detail = gate_forge_and_blessing(game)
+    game.items["items"][_bless.OIL]["kind"] = _saved_kind
+    if not ok and "不上架" in detail:
+        print("  ok   forge-and-blessing 能拦住祝福油不上架（商店这条路不能断）")
+    else:
+        failures += 1
+        print(f"  FAIL forge-and-blessing 未拦住祝福油不上架（{detail}）")
 
     print(f"\nselfcheck: {'PASS' if failures == 0 else f'{failures} 条门禁形同虚设'}")
     return 0 if failures == 0 else 1

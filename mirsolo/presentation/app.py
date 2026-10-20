@@ -61,7 +61,9 @@ from mirsolo.economy.shop import (
     sell_ores,
     withdraw,
 )
+from mirsolo.items import blessing as blessing_rules
 from mirsolo.items import mining, potion, wear
+from mirsolo.items import upgrade as upgrade_rules
 from mirsolo.items.equipment import EquipError, equip, recompute, unequip
 from mirsolo.items.rings import RingError, try_travel
 from mirsolo.presentation.hud import (
@@ -122,6 +124,7 @@ PANEL_KEYS = {
     pyglet.window.key.N: "auction",
     pyglet.window.key.B: "shop",
     pyglet.window.key.V: "warehouse",
+    pyglet.window.key.G: "forge",
 }
 
 #: 挖矿拒绝码 → 玩家能看懂的话（码本身给测试断言用，不上屏）
@@ -176,6 +179,18 @@ TRADE_ERRORS = {
     "missing_components": "角色数据异常",
 }
 
+
+#: 锻造拒绝码 → 玩家能看懂的话（码本身给测试断言用，不上屏）
+FORGE_ERRORS = {
+    "no_weapon": "手上没有武器",
+    "not_upgradable": "这件武器不能升级",
+    "max_level": "已经满级了",
+    "purity_too_low": "纯度不够",
+    "no_gold": "金币不够",
+    "no_oil": "没有祝福油",
+    "maxed": "祝福已经到顶",
+    "floored": "诅咒已经到底",
+}
 
 AUCTION_ERRORS = {
     "unknown_item": "未知物品",
@@ -450,6 +465,26 @@ class MirsoloWindow(pyglet.window.Window):
             elif row.action == "sell_ores":
                 got = sell_ores(player, data)
                 self._say(f"卖掉 {len(got['items'])} 种矿石 ＋{got['earned']} 金")
+            elif row.action == "upgrade":
+                got = upgrade_rules.upgrade(player, data, self.session.seed)
+                name = data.items["items"].get(got["item"], {}).get("name", got["item"])
+                if got["ok"]:
+                    self._say(f"{name} 升到 +{got['level']}（{got['bp'] // 100}% 成了）")
+                else:
+                    # 失败必须回音，而且要写清掉到几：不写的话玩家只看到
+                    # 矿石没了、金币没了，会以为按钮把东西吞了。
+                    self._say(f"{name} 升级失败，掉到 +{got['level']}"
+                              f"（{got['bp'] // 100}% 没中）")
+            elif row.action == "bless":
+                got = blessing_rules.bless(player, data, self.session.seed)
+                name = data.items["items"].get(got["item"], {}).get("name", got["item"])
+                if got["ok"]:
+                    self._say(f"{name} 祝福 +{got['level']}")
+                elif got["cursed"]:
+                    self._say(f"{name} 抹油失败，诅咒 {got['level']}"
+                              f"（伤害上限被压低了）")
+                else:
+                    self._say(f"{name} 抹油失败，祝福掉到 {got['level']}")
             elif row.action == "cycle_tier":
                 self._say(f"报价档：{auction.cycle_ask_tier(player)}")
             elif row.action == "hire":
@@ -466,6 +501,8 @@ class MirsoloWindow(pyglet.window.Window):
             self._say(f"{row.text}：{AUCTION_ERRORS.get(exc.code, exc.code)}")
         except mercenary.MercenaryError as exc:
             self._say(f"{row.text}：{MERC_ERRORS.get(exc.code, exc.code)}")
+        except (upgrade_rules.UpgradeError, blessing_rules.BlessError) as exc:
+            self._say(f"{row.text}：{FORGE_ERRORS.get(exc.code, exc.code)}")
 
 # ── 特戒（T 键） ────────────────────────────────
 
@@ -872,7 +909,7 @@ class MirsoloWindow(pyglet.window.Window):
                 color=(255, 110, 90, 255) if banner.urgent else (200, 206, 216, 255)))
 
         self._hud_labels.append(Label(
-            "WASD/方向键移动　空格攻击　1-5 技能　F 挖矿　C 角色　M 佣兵　J 图鉴　N 拍卖行　B 商店　V 仓库　滚轮缩放　ESC 退出",
+            "WASD/方向键移动　空格攻击　1-5 技能　F 挖矿　C 角色　M 佣兵　J 图鉴　N 拍卖行　B 商店　V 仓库　G 锻造　滚轮缩放　ESC 退出",
             x=self.width / 2, y=8, font_size=11, font_name=FONT,
             anchor_x="center", color=(170, 176, 186, 255)))
 
@@ -1020,7 +1057,7 @@ def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
                       wear_left: int | None = None,
                       dead: bool = False, hurt: bool = False,
                       potions: bool = False, mine: bool = False,
-                      ore: bool = False) -> None:
+                      ore: bool = False, forge: bool = False) -> None:
     """验收辅助：提等级 / 发金币 / 发一套装备 / 雇佣兵 / 记图鉴。
 
     刻意**复用游戏内路径**（``apply_growth`` + ``learn`` + ``equip`` + ``hire`` +
@@ -1048,6 +1085,9 @@ def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
       id 从数据面扫出来（加新工具不用改这里）；这张图没矿点就打一行提示。
     * ``ore``——每种矿石塞一块进背包（验收专用，**不校验负重**，
       否则截图前还得先算一遍这身装备还剩多少余量）。
+    * ``forge``——发一把能升级的武器穿上、背包塞几种纯度的黑铁矿石和几瓶
+      祝福油（验收专用，**不校验负重**）。矿石纯度按数据面扫出来，
+      加新档位不用改这里。
     """
     player = session.world.get_entity("player")
     if player is None:
@@ -1109,6 +1149,22 @@ def prepare_character(session: GameSession, *, class_id: str, level: int = 1,
     if ore:
         for item_id in mining.ore_ids(session.data):
             player.get(Bag).add(item_id, 1)
+    if forge:
+        data = session.data
+        # 武器从数据面挑一把"能升级的战士武器"，走 equip 真路径
+        weapon = next((item_id for item_id, spec in sorted(data.items["items"].items())
+                       if upgrade_rules.is_upgradable(data, item_id)
+                       and "warrior" in (spec.get("class") or [])), None)
+        if weapon is not None:
+            player.get(Bag).add(weapon, 1)
+            try:
+                equip(player, data, weapon)
+            except EquipError as exc:
+                print(f"[forge] 穿不上 {weapon}：{exc.code}")
+        for item_id in mining.ore_ids(data):
+            if mining.purity_of(data, item_id):
+                player.get(Bag).add(item_id, 2)
+        player.get(Bag).add(blessing_rules.OIL, 3)
     if dead:
         # 验收开关：只负责致死那一下；倒地 → 结算 → 复活全在
         # ``DeathPenaltySystem`` + ``actor.penalty`` 里，避免两套实现分叉
@@ -1154,11 +1210,12 @@ def launch(*, seed: int = 20261019, map_id: str = "biqi_field",
            wear_left: int | None = None,
            dead: bool = False, hurt: bool = False,
            potions: bool = False, mine: bool = False,
-           ore: bool = False) -> None:
+           ore: bool = False, forge: bool = False) -> None:
     """装配会话 + 开窗（CLI 与测试共用入口）。
 
     ``panel`` 只用于验收截图：开窗时就打开某个面板（``character``/``mercenary``/
-    ``codex``/``auction``/``shop``/``warehouse``），截图里能直接看到面板长什么样。
+    ``codex``/``auction``/``shop``/``warehouse``/``forge``），截图里能直接看到
+    面板长什么样。
 
     ``siege`` 是验收开关：传战役 id（如 ``sabak``）时装配完立刻
     :func:`mirsolo.siege.campaign.start_siege`——它内部会换图并铺现场，
@@ -1171,7 +1228,7 @@ def launch(*, seed: int = 20261019, map_id: str = "biqi_field",
                       learn_all=learn, gear=gear, gold=gold, mercs=mercs,
                       codex_kills=codex_kills, bag=bag, wear_left=wear_left,
                       dead=dead, hurt=hurt, potions=potions,
-                      mine=mine, ore=ore)
+                      mine=mine, ore=ore, forge=forge)
     if siege is not None:
         start_siege(session, siege)
     window = MirsoloWindow(session=session, width=width, height=height)

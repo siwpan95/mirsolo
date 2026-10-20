@@ -23,7 +23,7 @@ from mirsolo.bootstrap import build_session
 from mirsolo.components import Bag, Body, PotionState, Progression, Vitals, Wallet
 from mirsolo.data.loader import GameData
 from mirsolo.economy.shop import buy_price, resupply
-from mirsolo.items import potion
+from mirsolo.items import blessing, potion
 from mirsolo.items.drops import roll_drops
 from mirsolo.presentation.panels import shop_stock
 from mirsolo.progression.exp import apply_growth
@@ -584,11 +584,34 @@ def test_a_downed_player_gets_no_automatic_potions():
 @case
 def test_the_shelf_lists_every_potion():
     stock = shop_stock(DATA)
-    names = [i for i in stock
-             if DATA.items["items"][i].get("kind") == "consumable"]
+    names = [i for i in stock if potion.is_potion(DATA, i)]
     assert len(names) == 9, names
     # 最便宜的那几行就是药水：小瓶 100 金，比最便宜的装备（布衣 80）只高一点
     assert buy_price(DATA, names[0]) <= 120, names[0]
+    # 祝福油（P3-S5）也上架，但它**不是药**：口径必须走 is_potion，
+    # 否则"药水负重 / 补货余量 / 自动喝药"三条都会把它算进去。
+    assert blessing.OIL in stock, "祝福油没上架（幸运只剩掉落一条腿）"
+    assert not potion.is_potion(DATA, blessing.OIL), "祝福油被当成药水了"
+    # 光有一条"祝福油不是药"不够：真正的口径是"带一条合法的 consume.effect"。
+    # 表里扫一遍——每一个 consumable 都必须被判成药，而且 **consume 段只能长在
+    # consumable 身上**。后面这条是硬约束：一旦有人给装备/祝福油补了个 consume
+    # 段，`is_potion` 里"先看 kind"那道闸就是唯一的拦截，闸一松就漏进药水清单。
+    all_consumables = [
+        i for i, spec in DATA.items["items"].items()
+        if spec.get("kind") == "consumable"
+    ]
+    assert len(all_consumables) == 9, all_consumables
+    assert sorted(names) == sorted(all_consumables), (names, all_consumables)
+    strays = sorted(
+        i for i, spec in DATA.items["items"].items()
+        if spec.get("kind") != "consumable" and "consume" in spec
+    )
+    assert not strays, f"consume 段只能长在 consumable 身上，这些不是：{strays}"
+    assert not any(
+        potion.is_potion(DATA, i)
+        for i, spec in DATA.items["items"].items()
+        if spec.get("kind") != "consumable"
+    ), "非 consumable 的物品被算成药水了"
 
 
 @case
@@ -649,19 +672,30 @@ def test_resupply_refuses_when_gold_is_short():
 
 @case
 def test_every_monster_can_drop_potions():
-    """23 个怪都有一组药水：只靠商店买，穷的时候会直接卡死推进节奏。"""
+    """23 个怪都有一组药水：只靠商店买，穷的时候会直接卡死推进节奏。
+
+    补给组（药水 / 祝福油）一律追加在末尾，所以"有没有药水"要往末尾那几组里找，
+    不能只看最后一组——P3-S5 起 BOSS 的末组是祝福油，药水在它前面。
+    """
     for monster_id, table in DATA.drops["drops"].items():
-        last = table["groups"][-1]["entries"]
-        kinds = {DATA.items["items"][e["item"]]["kind"] for e in last}
-        assert kinds == {"consumable"}, (monster_id, kinds)
+        supply: list[set[str]] = []
+        for group in reversed(table["groups"]):
+            kinds = {DATA.items["items"][e["item"]]["kind"] for e in group["entries"]}
+            if kinds <= {"consumable", "blessing"}:
+                supply.append(kinds)
+            else:
+                break
+        assert {"consumable"} in supply, (monster_id, supply)
 
 
 @case
 def test_the_potion_group_does_not_shift_the_equipment_streams():
-    """药水组追加在末尾，既有装备组的随机流一个都没挪。
+    """补给组追加在末尾，既有组的随机流一个都没挪。
 
     ``roll_drops`` 的流名是 ``...:group{index}``，插到前面会把下标整体挪位，
     等于把已经沉淀下来的掉落结果全部洗牌——这条就是那次洗牌的报警器。
+    这里砍掉的是**末组**（P3-S5 起就是祝福油组），砍掉它之后前 60 次掉落
+    必须逐位不变，等于证明"新加的组没有洗掉任何既有掉落"。
     """
     table = DATA.drops["drops"]["shiwang"]
     trimmed = {"gold": table["gold"], "groups": table["groups"][:-1]}

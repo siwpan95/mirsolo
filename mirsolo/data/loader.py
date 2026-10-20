@@ -44,7 +44,7 @@ LUCK_SLOTS = ("weapon", "necklace")
 #: 物品大类：装备 / 技能书 / 消耗品 / 矿石（消耗品自 P3-S3、矿石自 P3-S4 起）。
 #: 消耗品的回复口径写在各自的 ``consume`` 段里、矿石的产出写在 ``mines.json`` 里，
 #: loader 只查键在与值域，不替规则层做任何推断。
-ITEM_KINDS = frozenset({"equip", "book", "consumable", "ore"})
+ITEM_KINDS = frozenset({"equip", "book", "consumable", "ore", "blessing"})
 
 #: 工具类型全集（P3-S4 挖矿）。工具是"拿在手上才做得了某件事"的装备，
 #: 与 ``ring_effect`` 同构：标记写在物品上，代码里不写"如果是鹤嘴锄就……"。
@@ -114,6 +114,7 @@ class GameData:
     sieges: dict = field(default_factory=dict)
     mercenaries: dict = field(default_factory=dict)
     mines: dict = field(default_factory=dict)
+    upgrades: dict = field(default_factory=dict)
     data_dir: Path = field(default_factory=data_dir_default)
     errors: list[str] = field(default_factory=list)
 
@@ -121,7 +122,7 @@ class GameData:
 
     @classmethod
     def load(cls, data_dir: str | Path | None = None) -> "GameData":
-        """从目录加载十张表（缺一张直接抛 FileNotFoundError）。"""
+        """从目录加载十一张表（缺一张直接抛 FileNotFoundError）。"""
         base = Path(data_dir) if data_dir is not None else data_dir_default()
         game = cls(
             exp=_read_json(base / "exp.json"),
@@ -134,6 +135,7 @@ class GameData:
             sieges=_read_json(base / "sieges.json"),
             mercenaries=_read_json(base / "mercenaries.json"),
             mines=_read_json(base / "mines.json"),
+            upgrades=_read_json(base / "upgrades.json"),
             data_dir=base,
         )
         game.errors = game.validate() + game.cross_check()
@@ -484,6 +486,49 @@ class GameData:
                 total += int(bp or 0)
             if entries and total != 10000:
                 errs.append(f"mines.json[{vid}]: 条目权重和为 {total}，应为 10000")
+
+        # 打造（P3-S5）：升级档位表与祝福油参数。
+        # 两套尺度在这里继续生效：**成功率是万分比**（``bp``），**金币是千分比**
+        # （``gold_permille``）——P2 混过一次、代价是 10 倍误差，所以名字继续带后缀。
+        up = self.upgrades.get("upgrade") or {}
+        levels = up.get("levels") or []
+        max_level = int(up.get("max_level", 0))
+        if not levels:
+            errs.append("upgrades.json: upgrade.levels 为空")
+        if max_level <= 0:
+            errs.append("upgrades.json: upgrade.max_level 必须为正")
+        purity_bp = up.get("purity_bp") or {}
+        for key, bp in purity_bp.items():
+            if not str(key).isdigit():
+                errs.append(f"upgrades.json: purity_bp 的键 {key!r} 必须是纯度数字")
+            if not isinstance(bp, int) or isinstance(bp, bool) or not 0 < bp <= 10000:
+                errs.append(f"upgrades.json: purity_bp[{key}] 必须是 (0, 10000] 的万分比")
+        for index, row in enumerate(levels):
+            for key in ("from", "to", "min_purity", "ore", "gold_permille"):
+                if key not in row:
+                    errs.append(f"upgrades.json: levels[{index}] 缺字段 {key}")
+            if int(row.get("to", 0)) != int(row.get("from", 0)) + 1:
+                errs.append(f"upgrades.json: levels[{index}] 必须是逐级 +1")
+            if str(row.get("min_purity")) not in purity_bp:
+                errs.append(
+                    f"upgrades.json: levels[{index}] 的 min_purity "
+                    f"{row.get('min_purity')!r} 不在 purity_bp 里")
+            for key in ("ore", "gold_permille"):
+                if int(row.get(key, 0)) <= 0:
+                    errs.append(f"upgrades.json: levels[{index}] 的 {key} 必须为正")
+        if levels and int(levels[-1].get("to", 0)) != max_level:
+            errs.append("upgrades.json: 最后一档的 to 必须等于 max_level")
+        bless = self.upgrades.get("blessing") or {}
+        for key in ("base_bp", "step_bp", "min_bp", "max", "min"):
+            if key not in bless:
+                errs.append(f"upgrades.json: blessing 缺字段 {key}")
+        if not 0 < int(bless.get("base_bp", 0)) <= 10000:
+            errs.append("upgrades.json: blessing.base_bp 必须是 (0, 10000] 的万分比")
+        for key in ("min_bp", "max"):
+            if int(bless.get(key, 0)) <= 0:
+                errs.append(f"upgrades.json: blessing.{key} 必须为正")
+        if int(bless.get("min", 0)) >= 0:
+            errs.append("upgrades.json: blessing.min 必须为负（诅咒要有下界）")
 
         return errs
 

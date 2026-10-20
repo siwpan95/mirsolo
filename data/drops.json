@@ -336,6 +336,19 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 60,
+          "entries": [
+            {
+              "item": "blessing_oil",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         }
       ]
     },
@@ -854,6 +867,19 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 60,
+          "entries": [
+            {
+              "item": "blessing_oil",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         }
       ]
     },
@@ -1244,6 +1270,19 @@
               ]
             }
           ]
+        },
+        {
+          "permille": 60,
+          "entries": [
+            {
+              "item": "blessing_oil",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
         }
       ]
     },
@@ -1576,6 +1615,19 @@
               "count": [
                 2,
                 4
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 60,
+          "entries": [
+            {
+              "item": "blessing_oil",
+              "permille": 10000,
+              "count": [
+                1,
+                1
               ]
             }
           ]
@@ -1959,6 +2011,19 @@
               "count": [
                 2,
                 4
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 60,
+          "entries": [
+            {
+              "item": "blessing_oil",
+              "permille": 10000,
+              "count": [
+                1,
+                1
               ]
             }
           ]

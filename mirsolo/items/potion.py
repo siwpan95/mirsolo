@@ -70,8 +70,17 @@ def _spec(data: GameData, item_id: str) -> dict:
 
 
 def is_potion(data: GameData, item_id: str) -> bool:
-    """这件东西是不是药水。"""
-    return _spec(data, item_id).get("kind") == "consumable"
+    """这件东西是不是**能喝**的药水。
+
+    ⚠️ 不能只看 ``kind == "consumable"``：祝福油（P3-S5）也是消耗品，
+    但它不是喝下去的东西——只看 kind 的话，"药水负重"会把它算进去，
+    商店补货的余量凭空少一块。真正的口径是"带一条合法的 ``consume`` 段"。
+    """
+    spec = data.items["items"].get(item_id) or {}
+    if spec.get("kind") != "consumable":
+        return False
+    consume = spec.get("consume")
+    return isinstance(consume, dict) and consume.get("effect") in POTION_EFFECTS
 
 
 def consume_of(data: GameData, item_id: str) -> dict:

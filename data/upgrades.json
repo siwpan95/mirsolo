@@ -1,0 +1,75 @@
+{
+  "upgrade": {
+    "max_level": 7,
+    "bonus": {
+      "lo": 1,
+      "hi": 2
+    },
+    "purity_bp": {
+      "30": 4000,
+      "50": 6000,
+      "70": 8000,
+      "100": 10000
+    },
+    "step_bp": 600,
+    "min_success_bp": 500,
+    "levels": [
+      {
+        "from": 0,
+        "to": 1,
+        "min_purity": 30,
+        "ore": 1,
+        "gold_permille": 50
+      },
+      {
+        "from": 1,
+        "to": 2,
+        "min_purity": 30,
+        "ore": 1,
+        "gold_permille": 100
+      },
+      {
+        "from": 2,
+        "to": 3,
+        "min_purity": 50,
+        "ore": 1,
+        "gold_permille": 150
+      },
+      {
+        "from": 3,
+        "to": 4,
+        "min_purity": 50,
+        "ore": 1,
+        "gold_permille": 200
+      },
+      {
+        "from": 4,
+        "to": 5,
+        "min_purity": 70,
+        "ore": 1,
+        "gold_permille": 250
+      },
+      {
+        "from": 5,
+        "to": 6,
+        "min_purity": 70,
+        "ore": 1,
+        "gold_permille": 300
+      },
+      {
+        "from": 6,
+        "to": 7,
+        "min_purity": 100,
+        "ore": 1,
+        "gold_permille": 350
+      }
+    ]
+  },
+  "blessing": {
+    "base_bp": 7000,
+    "step_bp": 700,
+    "min_bp": 1000,
+    "max": 7,
+    "min": -7
+  }
+}

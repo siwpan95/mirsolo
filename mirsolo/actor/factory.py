@@ -12,6 +12,7 @@ from mirsolo.components import (
     AiState,
     Attributes,
     Bag,
+    Blessing,
     Body,
     Codex,
     Cooldowns,
@@ -25,6 +26,7 @@ from mirsolo.components import (
     Progression,
     Skills,
     SummonOwner,
+    Upgrade,
     Vitals,
     Wallet,
     Warehouse,
@@ -99,6 +101,8 @@ def spawn_player(
     entity.add(Warehouse())
     entity.add(Loadout())
     entity.add(Wear())
+    entity.add(Upgrade())
+    entity.add(Blessing())
     entity.add(DeathLedger())
     entity.add(Mining())
     entity.add(PotionState())

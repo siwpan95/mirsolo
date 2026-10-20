@@ -29,10 +29,12 @@ from mirsolo.components import (
     Attributes,
     AuctionBook,
     Bag,
+    Blessing,
     Codex,
     Loadout,
     Paralysis,
     Progression,
+    Upgrade,
     Vitals,
     Wallet,
     Warehouse,
@@ -42,7 +44,9 @@ from mirsolo.actor import codex, mercenary
 from mirsolo.data.loader import SLOTS, GameData
 from mirsolo.economy import auction
 from mirsolo.economy.shop import buy_price, ore_value, sell_price
+from mirsolo.items import blessing as blessing_rules
 from mirsolo.items import potion, wear
+from mirsolo.items import upgrade as upgrade_rules
 from mirsolo.items.rings import EFFECT_LABELS, charges_left, ring_effect
 from mirsolo.presentation.hud import Rect, TextAnchor
 
@@ -318,8 +322,11 @@ def shop_stock(data: GameData) -> list[str]:
     药水（``consumable``）从 P3-S3 起上架：续航的两条腿是商店与掉落，
     只有掉落的话脸黑时会直接卡死推进节奏。
     """
+    # 祝福油（kind="blessing"，P3-S5）也上架：它和药水一样是"两条腿"的东西，
+    # 只有 BOSS 掉落的话脸黑时会一直凑不齐幸运。
     ids = [item_id for item_id, spec in data.items["items"].items()
-           if spec.get("kind", "equip") in ("equip", "book", "consumable")]
+           if spec.get("kind", "equip")
+           in ("equip", "book", "consumable", "blessing")]
     return sorted(ids, key=lambda item_id: (buy_price(data, item_id), item_id))
 
 
@@ -458,6 +465,166 @@ def build_warehouse_panel(*, player: Entity, data: GameData,
     panel.texts.append(TextAnchor("V 关闭　滚轮翻页", rect.x + rect.w - 8, rect.y + 8,
                                   10, (0.6, 0.62, 0.66, 1.0), anchor_x="right"))
     return panel
+
+
+def build_forge_panel(*, player: Entity, data: GameData,
+                      width: int = 1280, height: int = 720,
+                      scroll: int = 0, tick: int = 0,
+                      world: World | None = None) -> Panel:
+    """锻造面板（P3-S5）：左 = 武器升级，右 = 祝福油。
+
+    两块都只作用于**当前穿着的那把武器**——"你手上这把"是唯一没有歧义的对象，
+    做选择列表只会多出一层"我到底升了哪把"。
+
+    可点条目把**代价与成功率一起写出来**
+    （``黑铁矿石(纯度100) ×1 + 640 金 · 64%``）：升级的全部决策就在这三个数里，
+    玩家看不见就只能瞎猜；而它们都是数据表里的数，显示出来不需要任何额外计算。
+    点不动时**仍然画出来**并写清原因（差多少金 / 要什么纯度），
+    整行消失的话玩家只会以为按钮坏了。
+    """
+    rect = _panel_rect(width, height)
+    # 锻造面板比通用面板宽 80px：两行的"行名 + 代价详情"要挤进一栏，
+    # 通用宽度下一栏 ~250px 正好差两个字符（P3-S5 截图实测 "+1" 被顶掉）。
+    rect = Rect(rect.x - 40, rect.y, rect.w + 80, rect.h)
+    left, right = _columns(rect)
+    panel = Panel(key="forge", title="锻造", rect=rect, scroll=scroll)
+    wallet = player.get(Wallet)
+    gold = int(wallet.gold) if wallet is not None else 0
+
+    weapon = upgrade_rules.wielded_weapon(player)
+    name = _item_label(data, weapon) if weapon else "（空手）"
+    up_book = player.get(Upgrade)
+    bless_book = player.get(Blessing)
+    level = upgrade_rules.level_of(up_book, weapon) if weapon else 0
+
+    # ── 左：武器升级 ──────────────────────────────────
+    info = upgrade_rules.plan(data, player)
+    bonus = upgrade_rules.bonus_of(data, up_book, weapon) if weapon else (0, 0)
+    panel.sections.append(TextAnchor("武器升级", left.x + 4, left.top - 40, 13,
+                                     (0.95, 0.86, 0.55, 1.0)))
+    panel.texts.append(TextAnchor(f"{name}　+{level}", left.x + 4, left.top - 58, 12,
+                                  (0.90, 0.92, 0.95, 1.0)))
+    panel.texts.append(TextAnchor(
+        f"升级加成　下限 +{bonus[0]}　上限 +{bonus[1]}", left.x + 4, left.top - 76, 11,
+        (0.78, 0.80, 0.84, 1.0)))
+
+    if info["ok"]:
+        text = f"升到 +{int(info['level']) + 1}"
+        # 紧凑版：一栏 ~250px，写全"成功率"三个字会把行名压住（P3-S5 截图实测）
+        detail = (f"{_item_label(data, info['ore'])} ×{int(info['ore_count'])}"
+                  f" +{int(info['gold'])}金 · {int(info['bp']) // 100}%")
+    else:
+        text = _upgrade_blocked_text(info)
+        detail = _upgrade_blocked_detail(data, info)
+    # 行放在头部三行文字（栏目名 / 武器名 / 加成）的**下面**：
+    # 沿用其它面板"贴标题"的算式会和 top-58 / top-76 两行撞在一起（P3-S5 截图实测）。
+    panel.rows.append(Row(
+        rect=Rect(left.x, left.top - 104, left.w, ROW_HEIGHT),
+        text=text, action="upgrade", item=weapon or "", detail=detail,
+        enabled=bool(info["ok"])))
+
+    # ── 右：祝福油 ────────────────────────────────────
+    binfo = blessing_rules.plan(data, player)
+    bless_level = blessing_rules.level_of(bless_book, weapon) if weapon else 0
+    attr = player.get(Attributes)
+    luck = int(attr.luck) if attr is not None else 0
+    panel.sections.append(TextAnchor("祝福油", right.x + 4, right.top - 40, 13,
+                                     (0.95, 0.86, 0.55, 1.0)))
+    if bless_level < 0:
+        head = f"诅咒 {bless_level}（会压低伤害上限）"
+        color = (0.95, 0.55, 0.52, 1.0)
+    elif bless_level > 0:
+        head = f"祝福 +{bless_level}"
+        color = (0.62, 0.90, 0.72, 1.0)
+    else:
+        head = "未祝福"
+        color = (0.85, 0.87, 0.90, 1.0)
+    panel.texts.append(TextAnchor(head, right.x + 4, right.top - 58, 12, color))
+    panel.texts.append(TextAnchor(
+        f"幸运合计 {luck} / {LUCK_CAP}（{_luck_note(data, player, weapon)}）",
+        right.x + 4, right.top - 76, 11, (0.78, 0.80, 0.84, 1.0)))
+
+    if binfo["ok"]:
+        btext = "抹一瓶祝福油"
+        bdetail = (f"持有 {int(binfo['oils'])} 瓶"
+                   f" · {int(binfo['bp']) // 100}% · 失败降 1")
+    else:
+        btext = _bless_blocked_text(binfo)
+        bdetail = _bless_blocked_detail(binfo)
+    panel.rows.append(Row(
+        rect=Rect(right.x, right.top - 104, right.w, ROW_HEIGHT),
+        text=btext, action="bless", item=weapon or "", detail=bdetail,
+        enabled=bool(binfo["ok"])))
+
+    panel.texts.append(TextAnchor(f"金币 {gold}", left.x + 4, left.y + 24, 11,
+                                  (0.95, 0.86, 0.55, 1.0)))
+    panel.texts.append(TextAnchor("G 关闭", rect.x + rect.w - 8, rect.y + 8,
+                                  10, (0.6, 0.62, 0.66, 1.0), anchor_x="right"))
+    return panel
+
+
+def _upgrade_blocked_text(info: dict) -> str:
+    return {
+        "no_weapon": "手上没有武器",
+        "not_upgradable": "这件武器不能升级",
+        "max_level": "已经满级",
+        "purity_too_low": "纯度不够",
+        "no_gold": "金币不够",
+    }.get(str(info.get("code")), "现在升不了级")
+
+
+def _upgrade_blocked_detail(data: GameData, info: dict) -> str:
+    code = str(info.get("code"))
+    if code == "purity_too_low":
+        return f"需要纯度不低于 {int(info.get('gate', 0))} 的黑铁矿石"
+    if code == "no_gold":
+        return f"还差 {int(info.get('gold', 0))} 金"
+    if code == "max_level":
+        return f"+{int(info.get('level', 0))} 已是上限"
+    if code == "not_upgradable":
+        return "挖矿工具与副手不能升级"
+    return ""
+
+
+def _bless_blocked_text(info: dict) -> str:
+    return {
+        "no_weapon": "手上没有武器",
+        "not_upgradable": "这件武器不能抹油",
+        "no_oil": "没有祝福油",
+        "maxed": "祝福已经到顶",
+        "floored": "诅咒已经到底",
+    }.get(str(info.get("code")), "现在抹不了油")
+
+
+def _bless_blocked_detail(info: dict) -> str:
+    code = str(info.get("code"))
+    if code == "no_oil":
+        return "商店有售，BOSS 也掉"
+    if code == "maxed":
+        return f"+{int(info.get('level', 0))} 已是上限"
+    if code == "floored":
+        return f"{int(info.get('level', 0))} 已是下限"
+    return ""
+
+
+def _luck_note(data: GameData, player: Entity, weapon: str | None) -> str:
+    """幸运的拆解（武器自带 + 祝福等级 + 项链），让人看得见 9 是怎么凑出来的。"""
+    if not weapon:
+        return "空手"
+    parts: list[str] = []
+    own = int((data.items["items"].get(weapon) or {}).get("luck", 0) or 0)
+    if own:
+        parts.append(f"武器 {own}")
+    bless_level = blessing_rules.level_of(player.get(Blessing), weapon)
+    if bless_level:
+        parts.append(f"祝福 {bless_level:+d}")
+    loadout = player.get(Loadout)
+    if loadout is not None:
+        neck = loadout.slots.get("necklace")
+        neck_luck = int((data.items["items"].get(neck or "") or {}).get("luck", 0) or 0)
+        if neck_luck:
+            parts.append(f"项链 {neck_luck}")
+    return " + ".join(parts) if parts else "无来源"
 
 
 def build_auction_panel(*, player: Entity, data: GameData,
@@ -666,6 +833,7 @@ BUILDERS = {
     "auction": build_auction_panel,
     "shop": build_shop_panel,
     "warehouse": build_warehouse_panel,
+    "forge": build_forge_panel,
 }
 
 

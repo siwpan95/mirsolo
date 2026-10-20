@@ -69,15 +69,28 @@ MAX_DAMAGE_CAP = 4_000_000     # 单次伤害上限，防数值溢出（远高�
 #      每次都刷满，属于把一个好想法推过了头。
 
 LUCK_CAP = 9  # 幸运合计上限（到这个点数就是"刀刀上限"）
+#: 诅咒下限（P3-S5）：祝福油失败能把幸运一路拖到 ``-7``。
+#: 与祝福等级的下限一致——两边是同一件事的两头，分开写迟早对不上。
+CURSE_CAP = 7
 
 
 def clamp_luck(luck: int) -> int:
-    """把幸运值钳进 ``[0, LUCK_CAP]``（数据表写超了也不会打穿上限）。"""
-    return max(0, min(LUCK_CAP, int(luck)))
+    """把幸运值钳进 ``[-CURSE_CAP, LUCK_CAP]``（**负值就是诅咒**）。
+
+    ⚠️ P3-S5 之前这里钳的是 ``[0, LUCK_CAP]``，负值一律归零。放开下界的理由
+    很直接：诅咒若被钳没，祝福油"失败降 1"就只是白扔一瓶油，
+    **对普通武器（自带 luck 0）完全没有代价**——而普通武器恰恰是祝福油的
+    主要目标（木剑 [2,5] 祝福到 +7 配项链就是刀刀 5 点）。
+    放开之后诅咒真的会压低伤害上限，见 :func:`lucky_range`。
+    """
+    return max(-CURSE_CAP, min(LUCK_CAP, int(luck)))
 
 
 def lucky_range(value: tuple[int, int], luck: int = 0) -> tuple[int, int]:
     """按幸运收窄 ``(下限, 上限)``；``luck`` 为 0 时原样返回。
+
+    正值**抬下限**（往上限收），负值**压上限**（往下限收）——两者对称：
+    幸运是"越来越容易打出上限"，诅咒就是"越来越容易打出下限"。
 
     >>> lucky_range((22, 36), 0)
     (22, 36)
@@ -85,14 +98,23 @@ def lucky_range(value: tuple[int, int], luck: int = 0) -> tuple[int, int]:
     (32, 36)
     >>> lucky_range((22, 36), 9)
     (36, 36)
+    >>> lucky_range((22, 36), -3)
+    (22, 31)
+    >>> lucky_range((22, 36), -7)
+    (22, 25)
     """
     lo, hi = value
     if lo > hi:
         lo, hi = hi, lo
     luck = clamp_luck(luck)
-    if luck <= 0:
+    if luck == 0:
         return (lo, hi)
-    return (hi - (hi - lo) * (LUCK_CAP - luck) // LUCK_CAP, hi)
+    if luck > 0:
+        return (hi - (hi - lo) * (LUCK_CAP - luck) // LUCK_CAP, hi)
+    # 诅咒：对称地把**上限**往下限压。LUCK_CAP + luck 在 luck=-7 时是 2，
+    # 即区间只剩原来的 2/9——刀刀几乎都落在下限附近，与 luck=+9  collapsed
+    # 到上限正好镜像。
+    return (lo, lo + (hi - lo) * (LUCK_CAP + luck) // LUCK_CAP)
 
 
 def hit_chance_bp(accuracy: int, agility: int) -> int:

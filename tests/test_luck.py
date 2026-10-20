@@ -16,7 +16,7 @@ from __future__ import annotations
 from mirsolo.actor.factory import spawn_monster
 from mirsolo.bootstrap import build_session, populate
 from mirsolo.combat import formulas
-from mirsolo.combat.formulas import LUCK_CAP
+from mirsolo.combat.formulas import CURSE_CAP, LUCK_CAP
 from mirsolo.combat.resolver import CombatContext, CombatResolver
 from mirsolo.components import Attributes, Bag, Progression
 from mirsolo.data.loader import LUCK_SLOTS, GameData
@@ -62,10 +62,30 @@ def test_lucky_range_swaps_inverted_range():
 
 @case
 def test_clamp_luck_bounds():
-    assert formulas.clamp_luck(-5) == 0
     assert formulas.clamp_luck(0) == 0
     assert formulas.clamp_luck(LUCK_CAP) == LUCK_CAP
     assert formulas.clamp_luck(99) == LUCK_CAP
+    # P3-S5 起**下界放开**：负值就是诅咒，不再被归零。
+    # 归零等于诅咒没有代价（普通武器自带 luck 0，钳完还是 0），
+    # 祝福油"失败降 1"就只剩"白扔一瓶油"这一种损失。
+    assert formulas.clamp_luck(-5) == -5
+    assert formulas.clamp_luck(-CURSE_CAP) == -CURSE_CAP
+    assert formulas.clamp_luck(-99) == -CURSE_CAP
+
+
+@case
+def test_curse_narrows_from_the_other_end():
+    """诅咒是幸运的镜像：幸运抬下限，诅咒压上限（期望值为手算字面量）。"""
+    # spread 14：(22,36) 在 luck=-3 时 → 22 + 14*(9-3)//9 = 22+9 = 31
+    assert formulas.lucky_range((22, 36), -3) == (22, 31)
+    # luck=-7 → 22 + 14*2//9 = 22+3 = 25
+    assert formulas.lucky_range((22, 36), -CURSE_CAP) == (22, 25)
+    assert formulas.lucky_range((22, 36), -1) == (22, 34)
+    # 0 仍然是原样（诅咒与幸运共用的这个端点不许动）
+    assert formulas.lucky_range((22, 36), 0) == (22, 36)
+    # 镜像性：+9 塌到上限，-7 虽然没有塌到单点，但一定比原区间窄
+    assert formulas.lucky_range((22, 36), LUCK_CAP) == (36, 36)
+    assert formulas.lucky_range((22, 36), -CURSE_CAP)[1] < 36
 
 
 # ── 2. 基线不能被偷偷改动 ──────────────────────────────────

@@ -85,18 +85,21 @@ def test_drop_rate_matches_group_permille():
 
 @case
 def test_boss_has_two_groups_and_can_drop_weapon():
-    """尸王两组装备 + 一组药水；200 次内应至少掉一次斩马刀。
+    """尸王两组装备 + 一组药水 + 一组祝福油；200 次内应至少掉一次斩马刀。
 
-    P3-S3 给药水加的那一组**必须追加在末尾**：``roll_drops`` 的随机流名带组
-    下标（``...:group{index}``），插到前面会把既有装备组的流名整体挪位，
-    等于把已经沉淀下来的掉落结果全部洗牌。这条断言就是那次洗牌的报警器。
+    P3-S3 给药水加的那一组、P3-S5 给祝福油加的那一组**都必须追加在末尾**：
+    ``roll_drops`` 的随机流名带组下标（``...:group{index}``），插到前面会把
+    既有组的流名整体挪位，等于把已经沉淀下来的掉落结果全部洗牌。
+    这条断言就是那次洗牌的报警器——而"药水在祝福油之前"这条顺序，
+    定的是"后来者只能往后站"，不是"药水必须最后"。
     """
     table = _table("shiwang")
     items = DATA.items["items"]
-    assert len(table["groups"]) == 3
+    assert len(table["groups"]) == 4
     kinds = [items[entry["item"]]["kind"]
              for group in table["groups"] for entry in group["entries"]]
-    assert kinds[-2:] == ["consumable", "consumable"], "药水组必须是最后一组"
+    assert kinds[-3:] == ["consumable", "consumable", "blessing"], \
+        "补给组（药水 → 祝福油）必须是最后几组，且药水在前"
     found = False
     for index in range(200):
         drop = roll_drops(table, seed=11, monster_id="shiwang", kill_index=index)

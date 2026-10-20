@@ -32,11 +32,11 @@ CASES = []
 DATA = GameData.load()
 ITEMS = DATA.items["items"]
 
-#: 货架上架的三种 kind + 上架件数（56 件里 48 件；矿石不在此列）
-STOCK_KINDS = ("equip", "book", "consumable")
-STOCK_COUNT = 48
+#: 货架上架的四种 kind + 上架件数（57 件里 49 件；矿石不在此列）
+STOCK_KINDS = ("equip", "book", "consumable", "blessing")
+STOCK_COUNT = 49
 #: 全部物品件数（改表必须改这里）
-ITEM_COUNT = 56
+ITEM_COUNT = 57
 #: 矿石件数：五色 + 黑铁四档纯度
 ORE_COUNT = 8
 
@@ -208,12 +208,14 @@ def test_character_panel_disables_wearable_it_cannot_use():
 def test_shop_stock_covers_all_equipment_and_books():
     """货架 = 全部装备 + 全部技能书 + 全部药水，且显示的是**买入价**。
 
-    药水从 P3-S3 起上架（续航两条腿之一）。不写死 22/16/9 这些数字：
+    药水从 P3-S3 起上架（续航两条腿之一），祝福油从 P3-S5 起上架——它是
+    掉落之外的第二条腿，不进商店就等于不刷 BOSS 的人一辈子摸不到幸运。
+    不写死 22/16/9 这些数字：
     表里加了东西就该跟着变，写死只会把“新东西永远进不了货架”藏起来。
     """
     stock = shop_stock(DATA)
     kinds = [ITEMS[i]["kind"] for i in stock]
-    # 数量写死（56 件物品里 48 件上架），改表必须改这三个数
+    # 数量写死（57 件物品里 49 件上架），改表必须改这四个数
     assert len(stock) == STOCK_COUNT, (len(stock), STOCK_COUNT)
     for kind in STOCK_KINDS:
         assert kinds.count(kind) == sum(1 for i in ITEMS.values() if i["kind"] == kind), kind
