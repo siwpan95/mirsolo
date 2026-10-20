@@ -365,7 +365,13 @@ class MobAttackSystem(System):
             pos = mob.get(Position)
             if chebyshev(tpos, pos) > MELEE_RANGE:
                 continue
-            spec = self.data.monsters["monsters"].get(ident.species, {})
+            spec = self.data.monsters["monsters"].get(ident.species)
+            if spec is None:
+                # 佣兵（kind="summon"、species=merc_id）不在怪物表里：
+                # 它的攻速写在 mercenaries.json 自己的同构字段上。
+                # 不补这一级，佣兵一律落到默认 3（9 刻一刀），
+                # 表里写好的 attack_speed 4/4/5 是死数据。
+                spec = self.data.mercenaries["mercenaries"].get(ident.species, {})
             interval = max(2, 12 - int(spec.get("attack_speed", 3)))
             if tick - state.last_attack_tick < interval:
                 continue

@@ -398,9 +398,50 @@ def gate_readme_commands() -> tuple[bool, str]:
     return True, f"{len(targets)} 个引用可导入"
 
 
+def gate_readme_numbers() -> tuple[bool, str]:
+    """README 手写统计数字与事实源对账——手写数字会漂（实证：fd8b2ac 时
+    "38 件可交易"正确，物品涨到 79 后该栏一路漂到今天）。
+
+    事实源全部机械可数：``data/items.json`` 的物品总数与可交易数
+    （kind ∈ equip/book）、``data/monsters.json`` 的怪物种数、
+    ``tests/run_tests.py`` 的模块数、``scripts/inject_check.py`` 的注入针数、
+    本文件 GATES 的门禁条数。README 里同一数字出现多处时**每一处都要对**。
+    """
+    import re
+
+    import scripts.inject_check as ic
+    import tests.run_tests as rt
+    from mirsolo.data.loader import GameData
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    game = GameData.load()
+    items = game.items["items"]
+    facts = [
+        ("物品总数", r"共\s*(\d+)\s*件", len(items)),
+        ("可交易数", r"(\d+)\s*件可交易物品",
+         sum(1 for v in items.values() if v.get("kind") in ("equip", "book"))),
+        ("怪物种数", r"怪物表（(\d+)\s*种", len(game.monsters["monsters"])),
+        ("测试模块数", r"(\d+)\s*个模块，", len(rt.MODULES)),
+        ("注入针数", r"注入验证：(\d+)\s*处注入", len(ic.INJECTIONS)),
+        ("门禁条数", r"(\d+)\s*条机械门禁", len(GATES)),
+    ]
+    bad = []
+    checked = 0
+    for name, pattern, want in facts:
+        got = [int(m.group(1)) for m in re.finditer(pattern, readme)]
+        if not got:
+            bad.append(f"{name}: README 没找到这个数字")
+            continue
+        checked += 1
+        if any(g != want for g in got):
+            bad.append(f"{name}: README 写 {got}，事实 {want}")
+    if bad:
+        return False, "；".join(bad)
+    return True, f"{checked} 个统计数字对账一致"
+
+
 def gate_tree_real() -> tuple[bool, str]:
     """README「项目结构」代码块里列出的路径都必须真实存在。
-
     目录树是**嵌套**的：``combat/`` 下面的 ``formulas.py`` 实际位于
     ``mirsolo/combat/formulas.py``。这里按缩进维护一个父目录栈，
     把每行还原成完整相对路径再判断——否则每条子项都会被误报成缺失。
@@ -1298,6 +1339,7 @@ GATES = [
     ("tests-registered", "run_tests.MODULES ↔ tests/test_*.py 双向一致", gate_tests_registered),
     ("readme-commands", "README 里的 python -m 目标都真实可导入", gate_readme_commands),
     ("readme-tree-real", "README 项目结构里的路径都真实存在", gate_tree_real),
+    ("readme-numbers", "README 手写统计数字与数据/代码事实对账", gate_readme_numbers),
     ("package-imports", "mirsolo/ 下每个模块都能 import", gate_package_imports),
 ]
 
@@ -1822,6 +1864,24 @@ def _selfcheck() -> int:
     else:
         failures += 1
         print(f"  FAIL class-weapon-coverage 未拦住 40 档整档空缺（{detail}）")
+
+    # 41) readme-numbers：把 README 里的物品总数 +1，必须红。
+    #     这条防的是"数字漂了没人看见"——正是它诞生前发生过的漂移。
+    readme_bytes = readme_path.read_bytes()
+    text = readme_bytes.decode("utf-8")
+    broken = text.replace("共 79 件", "共 80 件", 1)
+    if broken == text:
+        print("  SKIP readme-numbers 未找到可注入的数字")
+    else:
+        newline = "\r\n" if b"\r\n" in readme_bytes else "\n"
+        readme_path.write_bytes(broken.replace("\n", newline).encode("utf-8"))
+        ok, _ = gate_readme_numbers()
+        readme_path.write_bytes(readme_bytes)
+        if not ok:
+            print("  ok   readme-numbers 能拦住漂掉的统计数字")
+        else:
+            failures += 1
+            print("  FAIL readme-numbers 未拦住漂掉的统计数字")
 
     print(f"\nselfcheck: {'PASS' if failures == 0 else f'{failures} 条门禁形同虚设'}")
     return 0 if failures == 0 else 1

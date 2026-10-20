@@ -122,12 +122,12 @@ mirsolo/
   docs/
     数据口径.md          逐表来源、近似标记与已知差异
     借鉴记账.md          借鉴对象 / 许可证 / 范围 / 禁区
-  scripts/verify.py     19 条机械门禁（含 --selfcheck 注入破坏自检）
+  scripts/verify.py     20 条机械门禁（含 --selfcheck 注入破坏自检）
   scripts/extend_p2_luck.py  幂等写幸运数据（终局武器 luck 7 + 两条幸运项链）
   scripts/extend_p2_rings.py 幂等写特戒数据（六枚戒指 + 六只 BOSS 的专属掉落组）
   scripts/extend_p2_auction.py 幂等写寄卖参数（61 件可交易物品的 demand/floor）
   scripts/extend_p2_mercs.py   幂等写佣兵表（三种佣兵 + 等级门槛与名额）
-  scripts/inject_check.py  注入验证：124 处注入，把生产代码改坏，确认回归真的会红
+  scripts/inject_check.py  注入验证：125 处注入，把生产代码改坏，确认回归真的会红
   tests/run_tests.py    测试聚合 runner（31 模块）
 ```
 
@@ -304,7 +304,7 @@ bad_version / bad_checksum / missing_field / bad_type / no_player / unknown_item
 ## 测试与验收
 
 ```bat
-python -m tests.run_tests              :: 31 个模块，482 项无窗口单测
+python -m tests.run_tests              :: 31 个模块，483 项无窗口单测
 python -m mirsolo.cli.smoke --ticks 3000   :: headless 冒烟（含确定性复跑）
 python -m mirsolo.cli.play --level 50 --gear --siege sabak --shot shots\siege.png
                                        :: 攻城验收：开窗即开战，顶部战役状态条
@@ -320,7 +320,7 @@ python -m mirsolo.cli.play --level 30 --gear --gold 4321 --save tmp\a.json --sho
                                        :: 存档验收：开窗前把这局写盘，HUD 显示 Lv30 / 4321 金
 python -m mirsolo.cli.play --load tmp\a.json --shot shots\p3s6_load.png
                                        :: 读档验收：接着那一局开窗（--level 等开关让位）
-python scripts\verify.py               :: 19 条机械门禁（<1 秒）
+python scripts\verify.py               :: 20 条机械门禁（<1 秒）
 python scripts\verify.py --list        :: 只看门禁清单
 python scripts\verify.py --verbose     :: 每条门禁的证据
 python scripts\verify.py --selfcheck   :: 注入破坏，证明门禁拦得住

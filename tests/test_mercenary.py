@@ -18,8 +18,10 @@
 from __future__ import annotations
 
 from mirsolo.actor import mercenary
+from mirsolo.actor.systems import KEY_INTENTS, KEY_TICK, MobAttackSystem
 from mirsolo.bootstrap import build_session, populate
 from mirsolo.components import (
+    AiState,
     Identity,
     Mercenary,
     Position,
@@ -266,6 +268,50 @@ def test_panel_lists_my_squad_with_the_time_left():
         assert any("不会跟着换图" in t.text for t in panel.texts)
     finally:
         session.shutdown()
+
+
+@case
+def test_mercenary_attack_pace_comes_from_its_own_table():
+    """佣兵攻速必须读 ``mercenaries.json`` 自己的 ``attack_speed``，不是怪表默认 3。
+
+    修前：``MobAttackSystem`` 按 ``Identity.species`` 查 ``monsters.json``，
+    佣兵的 species（gubing/huwei/mofashi）不在表里 → 查表落空 → 默认 3 →
+    **9 刻一刀**，表里写好的 4/4/5 是死数据。
+    修后：gubing/huwei=4 → 8 刻一刀（前 3 刀 ``[1, 9, 17]``）、
+    mofashi=5 → 7 刻一刀（``[1, 8, 15]``）。
+
+    三个佣兵**全钉**：表里写了三个攻速值，只测一个会漏掉 mofashi 的 5 档。
+    """
+    from allin_engine import World
+
+    def swings_for(merc_id: str) -> list[int]:
+        world = World()
+        merc = world.create_entity("m#1")
+        merc.add(Identity(name=merc_id, kind="summon", faction=0, species=merc_id))
+        merc.add(Position(x=5.0, y=5.0))
+        merc.add(Vitals(hp=10 ** 6, max_hp=10 ** 6, mp=0, max_mp=0))
+        ai = AiState(home=(5.0, 5.0))
+        merc.add(ai)
+        tgt = world.create_entity("t#1")
+        tgt.add(Identity(name="沙包", kind="monster", faction=1, species="shiwang"))
+        tgt.add(Position(x=6.0, y=5.0))
+        tgt.add(Vitals(hp=10 ** 6, max_hp=10 ** 6, mp=0, max_mp=0))
+        ai.target_id = tgt.id
+        world.set_data(KEY_INTENTS, [])
+        sys = MobAttackSystem(DATA)
+        swings: list[int] = []
+        for tick in range(1, 25):
+            world.set_data(KEY_TICK, tick)
+            sys.update(world, 0.1)
+            intents = world.get_data(KEY_INTENTS) or []
+            if any(i.get("attacker") == merc for i in intents):
+                swings.append(tick)
+            world.set_data(KEY_INTENTS, [])
+        return swings
+
+    expect = {"gubing": [1, 9, 17], "huwei": [1, 9, 17], "mofashi": [1, 8, 15]}
+    got = {mid: swings_for(mid)[:3] for mid in expect}
+    assert got == expect, f"佣兵出刀节奏不对（应当 {expect}）：{got}"
 
 
 def run() -> tuple[int, int]:

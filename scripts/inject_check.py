@@ -217,6 +217,11 @@ INJECTIONS = [
      "    def expired(self, tick: int) -> bool:\n        return self.until_tick <= tick",
      "    def expired(self, tick: int) -> bool:\n        return False",
      "tests.test_mercenary"),
+    ("佣兵攻速回落怪表默认（4/4/5 变死数据）",
+     ROOT / "mirsolo/actor/systems.py",
+     "            spec = self.data.mercenaries[\"mercenaries\"].get(ident.species, {})",
+     "            spec = {}",
+     "tests.test_mercenary"),
 
     # ── P2-S6 图鉴 ─────────────────────────────────
     ("图鉴每次击杀都发奖励（变成经验副本）",
