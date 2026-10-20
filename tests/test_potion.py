@@ -45,17 +45,19 @@ SUN = 50      # 太阳水（红蓝各 50）
 
 PRICE_HP_L = 700       # 金创药(大) 单价
 PRICE_MP_L = 840       # 魔法药(大) 单价
+PRICE_MP_X = 1920      # 魔法药(超级) 单价
 PRICE_HP_M = 300       # 金创药(中) 单价
 
 W_HP_L = 3             # 金创药(大) 重量
 W_MP_L = 3
+W_MP_X = 4
 W_HP_M = 2
 
 WARRIOR_30_HP = 136    # 战士 30 级 max_hp（20 + 29×4）
 WARRIOR_30_WEIGHT = 88 # 战士 30 级负重（30 + 29×2）
 MAGE_30_HP = 72        # 法师 30 级 max_hp（14 + 29×2）
-MAGE_30_MP = 186       # 法师 30 级 max_mp（12 + 29×6）
-MAGE_30_WEIGHT = 49    # 法师 30 级负重（20 + 29×1）
+MAGE_30_MP = 244       # 法师 30 级 max_mp（12 + 29×8）
+MAGE_30_WEIGHT = 107   # 法师 30 级负重（20 + 29×3）
 
 
 def case(fn):
@@ -271,8 +273,11 @@ def test_mage_mp_potions_restore_and_clamp():
         assert first["mp"] == LARGE, first
         assert vitals.mp == LARGE, vitals.mp
         second = potion.drink(player, DATA, "mp_potion_l", tick=COOLDOWN)
-        assert vitals.mp == MAGE_30_MP, vitals.mp  # 100 + 100 = 200 → 夹到 186
-        assert second["mp"] == MAGE_30_MP - LARGE, second
+        assert vitals.mp == LARGE * 2, vitals.mp   # 100+100=200 < 244：不夹
+        assert second["mp"] == LARGE, second
+        third = potion.drink(player, DATA, "mp_potion_l", tick=COOLDOWN * 2)
+        assert vitals.mp == MAGE_30_MP, vitals.mp  # 300 → 夹到 244
+        assert third["mp"] == MAGE_30_MP - LARGE * 2, third  # 只恢复 44
     finally:
         session.shutdown()
 
@@ -415,9 +420,9 @@ def test_auto_want_asks_for_mp_when_the_pool_is_low():
         player = spawn_player(session.world, DATA, class_id="mage")
         _at_level(player, "mage", 30)
         vitals = player.get(Vitals)
-        vitals.mp = 20            # 20×1000 = 20000 < 186×300 = 55800
+        vitals.mp = 20            # 20×1000 = 20000 < 244×300 = 73200
         assert potion.auto_want(vitals) == "mp"
-        vitals.mp = 56            # 56000 ≥ 55800 → 不触发
+        vitals.mp = 74            # 74000 ≥ 73200 → 不触发
         assert potion.auto_want(vitals) is None
     finally:
         session.shutdown()
@@ -631,7 +636,7 @@ def test_resupply_buys_a_bundle_sized_for_the_player():
 
 @case
 def test_resupply_clamps_to_the_weight_ceiling():
-    """法师 30 级负重只有 49：红 10 瓶（20）+ 蓝 9 瓶（27）= 47，不能超。
+    """法师 30 级负重 107：红 10 瓶（20）+ 超级蓝 10 瓶（40）= 60，不能超。
 
     负重是**物理**上限，所以这里按余量夹瓶数（红优先）而不是整笔拒绝——
     否则法师一次也补不了货。
@@ -644,9 +649,9 @@ def test_resupply_clamps_to_the_weight_ceiling():
         player.get(Wallet).gold = 10 ** 6
         got = resupply(player, DATA)
         assert got["items"][0] == {"item": "hp_potion_m", "count": BUNDLE}, got
-        assert got["items"][1] == {"item": "mp_potion_l", "count": 9}, got
-        assert got["paid"] == PRICE_HP_M * BUNDLE + PRICE_MP_L * 9 == 10560, got
-        carried = (W_HP_M * BUNDLE + W_MP_L * 9)
+        assert got["items"][1] == {"item": "mp_potion_x", "count": BUNDLE}, got
+        assert got["paid"] == PRICE_HP_M * BUNDLE + PRICE_MP_X * BUNDLE == 22200, got
+        carried = (W_HP_M * BUNDLE + W_MP_X * BUNDLE)
         assert carried <= MAGE_30_WEIGHT, carried
     finally:
         session.shutdown()

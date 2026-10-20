@@ -50,7 +50,7 @@
       "hp_base": 14,
       "hp_per_level": 2,
       "mp_base": 12,
-      "mp_per_level": 6,
+      "mp_per_level": 8,
       "dc_base": [
         0,
         1
@@ -72,7 +72,7 @@
       "agility_base": 6,
       "agility_per_levels": 5,
       "weight_base": 20,
-      "weight_per_level": 1,
+      "weight_per_level": 3,
       "attack_speed": 4,
       "mc_base": [
         0,
@@ -91,7 +91,7 @@
       "hp_base": 16,
       "hp_per_level": 3,
       "mp_base": 10,
-      "mp_per_level": 4,
+      "mp_per_level": 6,
       "dc_base": [
         0,
         1
@@ -113,7 +113,7 @@
       "agility_base": 6,
       "agility_per_levels": 5,
       "weight_base": 22,
-      "weight_per_level": 1,
+      "weight_per_level": 3,
       "attack_speed": 5,
       "sc_base": [
         0,

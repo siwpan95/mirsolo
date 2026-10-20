@@ -89,8 +89,14 @@ class PenaltyError(ValueError):
         self.code = code
 
 
-def home_point(data: GameData, map_id: str) -> tuple[float, float]:
-    """回城落点 = 地图中心。
+def home_point(data: GameData, map_id: str,
+               near: tuple[float, float] | None = None) -> tuple[float, float]:
+    """回城落点 = 最近传送点；无传送点回图中心兜底（P4-S2）。
+
+    改前是"地图中心"：64×64 的图里中心离刷怪区并不近，而且怪随机分布，
+    复活在中心 = 复活在怪堆里，爬起来又挨一轮。传送点在图边角（怪不刷
+    边角），复活后能安全整顿再走回刷怪区；``near`` 给死亡位置时选离它
+    最近的一个，少跑一段回头路。
 
     抽成函数是因为它有两处消费（死亡结算与 ``cli/smoke.py`` 的临时复活），
     各写一份的话，改了地图落点规则就会漏一处。
@@ -98,7 +104,28 @@ def home_point(data: GameData, map_id: str) -> tuple[float, float]:
     spec = data.maps["maps"].get(map_id)
     if spec is None:
         return (0.0, 0.0)
+    portals = [tuple(int(v) for v in p.get("at", (0, 0)))
+               for p in spec.get("portals", []) if p.get("at")]
     size = spec.get("size", (0, 0))
+    if portals:
+        if near is not None:
+            nx, ny = float(near[0]), float(near[1])
+            best = min(portals, key=lambda pt: abs(pt[0] - nx) + abs(pt[1] - ny))
+        else:
+            best = portals[0]  # 不知道死亡位置就落入口（第一个传送点）
+        # ⚠️ 不能直接落在传送点上：PortalSystem 每刻判定"玩家踩在传送点
+        # 上就换图"，落在正上方 = 复活后立刻被传进下一张图（实测：比奇回城
+        # → 秒传矿洞）。在八邻域里挑一个图内且不在任何传送点上的格子。
+        px, py = best
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1),
+                       (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            cx, cy = px + dx, py + dy
+            if not (0 <= cx < int(size[0]) and 0 <= cy < int(size[1])):
+                continue
+            if (cx, cy) in portals:
+                continue
+            return (float(cx), float(cy))
+        return (float(px), float(py))  # 八邻域全被占的极小概率：认命
     return (float(int(size[0]) // 2), float(int(size[1]) // 2))
 
 

@@ -538,7 +538,9 @@ def test_the_player_comes_home_after_the_countdown():
         for _ in range(31):     # DOWN_TICKS = 30，第 31 步必须已经回城
             session.step(1)
         assert player.has(Downed) is False, "31 步了还没起来（兜底失效）"
-        assert (pos.x, pos.y) == penalty.home_point(DATA, "biqi_field")
+        # P4-S2：落点 = 离死亡位置最近的传送点（改前是地图中心）
+        assert (pos.x, pos.y) == penalty.home_point(DATA, "biqi_field",
+                                                    near=(5.0, 5.0))
         assert _ledger(player).count == 1
     finally:
         session.shutdown()

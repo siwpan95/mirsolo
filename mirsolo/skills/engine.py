@@ -19,6 +19,7 @@ from allin_engine import Entity, System, World
 
 from mirsolo.components import (
     AiState,
+    Attributes,
     Bag,
     Cooldowns,
     Identity,
@@ -308,6 +309,17 @@ class SkillSystem(System):
         ident.kind = "summon"      # 既不算怪（不占刷新名额），也不占玩家位
         ident.faction = faction    # 与主人同阵营，索敌自动生效
         entity.add(SummonOwner(owner_id=caster.id))
+        # 召唤物强度随施法者 sc 缩放（P4-S1）：否则 L11 骷髅 dc[2,5] 在 33+
+        # 的图里每刀只能打 1 点（被怪 ac 全吃掉），12 mp 换 0 输出的 mp 黑洞。
+        # 缩放只加 dc 不乘：加 sc 的下限一半与上限全额，低等级召唤仍是弱鸡，
+        # 高等级道士的骷髅才打得动高级图。hp/ac 不缩放——随从定位是补输出，
+        # 不是坦。
+        caster_attr = caster.get(Attributes)
+        if caster_attr is not None and caster_attr.sc[1] > 0:
+            atk = entity.get(Attributes)
+            if atk is not None:
+                atk.dc = (atk.dc[0] + caster_attr.sc[0] // 2,
+                          atk.dc[1] + caster_attr.sc[1])
         ai = entity.get(AiState)
         if ai is not None:
             ai.home = (float(int(pos.x) + 1), float(pos.y))

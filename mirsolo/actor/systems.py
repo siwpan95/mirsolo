@@ -1233,7 +1233,9 @@ class DeathPenaltySystem(System):
             if tick < downed.revive_at:
                 continue
             map_id = world.get_data("current_map")
-            home = penalty.home_point(self.data, map_id)
+            pos = entity.get(Position)
+            near = (pos.x, pos.y) if pos is not None else None
+            home = penalty.home_point(self.data, map_id, near=near)
             rng = Rng(self.seed, f"death:{entity.id}@{tick}")
             got = penalty.settle(self.data, entity, rng=rng, tick=tick,
                                  in_place=False, home=home)

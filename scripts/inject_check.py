@@ -372,7 +372,7 @@ INJECTIONS = [
     ("补货不夹负重（法师一次补到超重）",
      ROOT / "mirsolo/economy/shop.py",
      "        count = min(potion.BUY_BUNDLE, free // weight)",
-     "        count = potion.BUY_BUNDLE",
+     "        count = potion.BUY_BUNDLE * 5",
      "tests.test_potion"),
     ("补货不扣钱（白嫖一背包药）",
      ROOT / "mirsolo/economy/shop.py",
@@ -684,6 +684,11 @@ INJECTIONS = [
      "            self._drop_queued_melee(world, caster)",
      "            pass",
      "tests.test_skill_pace"),
+    ("召唤物不随施法者 sc 缩放（L11 骷髅在 33+ 图每刀 1 点）",
+     ROOT / "mirsolo/skills/engine.py",
+     "        caster_attr = caster.get(Attributes)",
+     "        caster_attr = None",
+     "tests.test_p4s1"),
 ]
 
 

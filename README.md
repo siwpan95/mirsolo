@@ -128,7 +128,7 @@ mirsolo/
   scripts/extend_p2_auction.py 幂等写寄卖参数（61 件可交易物品的 demand/floor）
   scripts/extend_p2_mercs.py   幂等写佣兵表（三种佣兵 + 等级门槛与名额）
   scripts/inject_check.py  注入验证：125 处注入，把生产代码改坏，确认回归真的会红
-  tests/run_tests.py    测试聚合 runner（31 模块）
+  tests/run_tests.py    测试聚合 runner（32 模块）
 ```
 
 ## 设计要点
@@ -304,7 +304,7 @@ bad_version / bad_checksum / missing_field / bad_type / no_player / unknown_item
 ## 测试与验收
 
 ```bat
-python -m tests.run_tests              :: 31 个模块，483 项无窗口单测
+python -m tests.run_tests              :: 32 个模块，488 项无窗口单测
 python -m mirsolo.cli.smoke --ticks 3000   :: headless 冒烟（含确定性复跑）
 python -m mirsolo.cli.play --level 50 --gear --siege sabak --shot shots\siege.png
                                        :: 攻城验收：开窗即开战，顶部战役状态条
@@ -364,6 +364,10 @@ python scripts\inject_check.py         :: 116 处注入，全部要能把测试�
 | P3-S4 | 挖矿（鹤嘴锄占武器槽 / 五色矿石 + 黑铁四档纯度 / F 键十刻一锄 / 矿点枯竭与再生 / 商店整笔卖矿） | ✅ |
 | P3-S5 | 武器升级与祝福油（+1 级 +1/+2 / 失败降 1 / 纯度即成功率 / 祝福油改幸运可失败 / 诅咒压上限 / G 锻造面板） | ✅ |
 | P3-S6 | 持久化存档（3 手动槽 + 自动槽 / F5·F9 / 四节点自动存 / 版本号 + 校验和 / 原子写） | ✅ |
+| P4 | 50 级可达性收尾（战斗平衡批次已随 P3 推送：攻速节流 / 攻击距离 / 技能共用窗口 / 法道武器档 / 33+ 战斗平衡 5730→2400h） | ✅ 已推送 |
+| P4-S1 | 法道 dps 数值（道士 229 出手/杀、法师 150 vs 战士 34；先出手明细诊断再调数值） | 📋 立项 |
+| P4-S2 | 死亡回城成本（dead 14%：回城落点改最近传送点 + 代理有钱按 V 原地复活） | 📋 立项 |
+| P4 验收 | 三职业 L33→47 实测：战士 <1500h / 法师·道士 <2500h（当前 2400 / 3050 / 5399h） | 🎯 |
 
 ## 许可
 

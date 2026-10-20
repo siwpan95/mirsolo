@@ -140,7 +140,7 @@
       "kind": "poison",
       "desc": "14 级习得。目标持续掉防掉血（P1-S2 接 Poison 组件）。",
       "book": "book_shidu",
-      "poison_damage": 2,
+      "poison_damage": 6,
       "poison_ticks": 6,
       "poison_interval": 10
     },

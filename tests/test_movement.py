@@ -188,6 +188,8 @@ def test_adjacent_mob_attacks_player():
     session, player, (px, py) = _session()
     try:
         spawn_monster(session.world, DATA, "jiangshi", x=px + 1.0, y=py)  # 出生即相邻
+        v = player.get(Vitals)
+        v.max_hp = v.hp = 10 ** 6   # 测的是"怪打得到人"，死亡回城是干扰变量
         start_hp = player.get(Vitals).hp
         session.step(100)
         assert player.get(Vitals).hp < start_hp, "相邻僵尸 10 秒内没打掉一滴血"
@@ -214,6 +216,8 @@ def test_chase_then_attack_end_to_end():
     session, player, (px, py) = _session()
     try:
         spawn_monster(session.world, DATA, "kulou", x=px + 6.0, y=py)
+        v = player.get(Vitals)
+        v.max_hp = v.hp = 10 ** 6   # 测的是"怪打得到人"，死亡回城是干扰变量
         start_hp = player.get(Vitals).hp
         session.step(MOB_STEP_TICKS * 50)  # 300 刻：够走过来并砍数刀
         assert player.get(Vitals).hp < start_hp, "骷髅 30 秒内没能接近并攻击玩家"

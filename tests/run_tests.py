@@ -37,6 +37,7 @@ MODULES = [
     "test_skill_pace",
     "test_taoist_sc",
     "test_armor_band",
+    "test_p4s1",
     "test_economy",
     "test_travel",
     "test_panels",

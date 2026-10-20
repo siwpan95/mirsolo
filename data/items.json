@@ -223,8 +223,8 @@
       ],
       "atk": null,
       "mc": [
-        6,
-        11
+        8,
+        14
       ],
       "sc": null,
       "ac": null,
@@ -250,8 +250,8 @@
       "atk": null,
       "mc": null,
       "sc": [
-        6,
-        11
+        8,
+        14
       ],
       "ac": null,
       "mac": null,
@@ -2022,8 +2022,8 @@
       ],
       "atk": null,
       "mc": [
-        9,
-        15
+        12,
+        19
       ],
       "sc": null,
       "ac": null,
@@ -2049,8 +2049,8 @@
       "atk": null,
       "mc": null,
       "sc": [
-        9,
-        15
+        12,
+        19
       ],
       "ac": null,
       "mac": null,
