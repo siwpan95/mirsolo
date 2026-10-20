@@ -2,6 +2,8 @@
 
 from mirsolo.skills.engine import (
     ALL_KINDS,
+    ATTACK_KINDS,
+    NON_ATTACK_KINDS,
     EVT_SKILL_CAST,
     EVT_SKILL_REJECTED,
     KEY_SKILL_INTENTS,
@@ -18,6 +20,8 @@ from mirsolo.skills.engine import (
 
 __all__ = [
     "ALL_KINDS",
+    "ATTACK_KINDS",
+    "NON_ATTACK_KINDS",
     "EVT_SKILL_CAST",
     "EVT_SKILL_REJECTED",
     "KEY_SKILL_INTENTS",

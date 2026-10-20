@@ -21,6 +21,17 @@ def case(fn):
     return fn
 
 
+def _within_reach(session, player, monster_id: str):
+    """把怪放在玩家**够得着**的格子上（普攻击程 = 切比雪夫 1 格）。
+
+    普攻有距离门之后，"怪摆在 (0,0)、玩家站在地图中心"这种写法的刀全部落空
+    ——本文件里凡是"出刀"的用例都得先走到合法距离，走一步这件事就落在这里，
+    免得每个用例各写一份坐标算术。
+    """
+    pos = player.get(Position)
+    return spawn_monster(session.world, DATA, monster_id, x=pos.x + 1, y=pos.y)
+
+
 @case
 def test_session_has_core_services():
     session = build_session(data=DATA, seed=1, map_id="biqi_field")
@@ -98,7 +109,7 @@ def test_kill_grants_exp_and_drops():
     try:
         player = populate(session, with_spawns=False)["player"]
         player.add(Attributes(dc=(100, 100), accuracy=10000, agility=0))
-        mob = spawn_monster(session.world, DATA, "ji", x=0, y=0)
+        mob = _within_reach(session, player, "ji")
 
         for _ in range(30):
             session.queue_attack(player, mob)
@@ -123,7 +134,7 @@ def test_damage_reduces_hp_and_can_kill_player():
     session = build_session(data=DATA, seed=5)
     try:
         player = populate(session, with_spawns=False)["player"]
-        mob = spawn_monster(session.world, DATA, "shiwang", x=0, y=0)
+        mob = _within_reach(session, player, "shiwang")
         start_hp = player.get(Vitals).hp
         for _ in range(40):
             session.queue_attack(mob, player)
@@ -148,8 +159,8 @@ def test_same_seed_same_world_history():
         try:
             player = populate(session, with_spawns=False)["player"]
             player.add(Attributes(dc=(50, 50), accuracy=10000, agility=0))
-            for index in range(20):
-                mob = spawn_monster(session.world, DATA, "daocaoren", x=float(index), y=0.0)
+            for _ in range(20):
+                mob = _within_reach(session, player, "daocaoren")
                 for _ in range(20):
                     session.queue_attack(player, mob)
                     session.step(1)
@@ -234,8 +245,8 @@ def test_kill_count_is_per_species_not_per_entity():
     try:
         player = populate(session, with_spawns=False)["player"]
         player.add(Attributes(dc=(999, 999), accuracy=10000, agility=0))
-        for x in (0.0, 1.0):
-            mob = spawn_monster(session.world, DATA, "ji", x=x, y=0.0)
+        for _ in range(2):
+            mob = _within_reach(session, player, "ji")
             for _ in range(20):
                 session.queue_attack(player, mob)
                 session.step(1)
@@ -254,7 +265,7 @@ def test_rewards_drain_clears_queue():
     try:
         player = populate(session, with_spawns=False)["player"]
         player.add(Attributes(dc=(999, 999), accuracy=10000, agility=0))
-        mob = spawn_monster(session.world, DATA, "ji", x=0.0, y=0.0)
+        mob = _within_reach(session, player, "ji")
         for _ in range(20):
             session.queue_attack(player, mob)
             session.step(1)
@@ -272,8 +283,8 @@ def test_player_gold_and_bag_accumulate():
     try:
         player = populate(session, with_spawns=False)["player"]
         player.add(Attributes(dc=(999, 999), accuracy=10000, agility=0))
-        for index in range(30):
-            mob = spawn_monster(session.world, DATA, "daocaoren", x=float(index), y=0.0)
+        for _ in range(30):
+            mob = _within_reach(session, player, "daocaoren")
             for _ in range(20):
                 session.queue_attack(player, mob)
                 session.step(1)

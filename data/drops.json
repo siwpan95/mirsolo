@@ -188,6 +188,27 @@
           ]
         },
         {
+          "permille": 2400,
+          "entries": [
+            {
+              "item": "wumu_fazhang",
+              "permille": 5000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "wumu_daojian",
+              "permille": 5000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
           "permille": 320,
           "entries": [
             {
@@ -238,6 +259,27 @@
             {
               "item": "wumujian",
               "permille": 2500,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 2000,
+          "entries": [
+            {
+              "item": "wumu_daojian",
+              "permille": 5000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "wumu_fazhang",
+              "permille": 5000,
               "count": [
                 1,
                 1
@@ -380,6 +422,27 @@
           ]
         },
         {
+          "permille": 2000,
+          "entries": [
+            {
+              "item": "yanyue_fazhang",
+              "permille": 5000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "xiangmo_jian",
+              "permille": 5000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
           "permille": 320,
           "entries": [
             {
@@ -443,6 +506,27 @@
           ]
         },
         {
+          "permille": 2000,
+          "entries": [
+            {
+              "item": "xiangmo_jian",
+              "permille": 5000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "yanyue_fazhang",
+              "permille": 5000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
           "permille": 320,
           "entries": [
             {
@@ -497,6 +581,40 @@
           "entries": [
             {
               "item": "book_cisha",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 1800,
+          "entries": [
+            {
+              "item": "guyu_fazhang",
+              "permille": 5000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "yinshe_jian",
+              "permille": 5000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 900,
+          "entries": [
+            {
+              "item": "jingzhongyue",
               "permille": 10000,
               "count": [
                 1,
@@ -577,6 +695,40 @@
           ]
         },
         {
+          "permille": 1800,
+          "entries": [
+            {
+              "item": "yinshe_jian",
+              "permille": 5000,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "guyu_fazhang",
+              "permille": 5000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 900,
+          "entries": [
+            {
+              "item": "jingzhongyue",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
           "permille": 350,
           "entries": [
             {
@@ -640,6 +792,59 @@
             {
               "item": "book_leidian",
               "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 900,
+          "entries": [
+            {
+              "item": "tiekuijia",
+              "permille": 2500,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "tietoukui",
+              "permille": 1500,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "daopao",
+              "permille": 1800,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "daoguan",
+              "permille": 1200,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "fashi_changpao",
+              "permille": 1800,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "fashi_toukui",
+              "permille": 1200,
               "count": [
                 1,
                 1
@@ -732,6 +937,59 @@
           ]
         },
         {
+          "permille": 1200,
+          "entries": [
+            {
+              "item": "tiekuijia",
+              "permille": 2500,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "tietoukui",
+              "permille": 1500,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "daopao",
+              "permille": 1800,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "daoguan",
+              "permille": 1200,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "fashi_changpao",
+              "permille": 1800,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "fashi_toukui",
+              "permille": 1200,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
           "permille": 350,
           "entries": [
             {
@@ -816,6 +1074,59 @@
             {
               "item": "yinshen_jiezhi",
               "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 2500,
+          "entries": [
+            {
+              "item": "tiekuijia",
+              "permille": 2500,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "tietoukui",
+              "permille": 1500,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "daopao",
+              "permille": 1800,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "daoguan",
+              "permille": 1200,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "fashi_changpao",
+              "permille": 1800,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "fashi_toukui",
+              "permille": 1200,
               "count": [
                 1,
                 1
@@ -924,6 +1235,98 @@
           ]
         },
         {
+          "permille": 420,
+          "entries": [
+            {
+              "item": "caihong_mojian",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 420,
+          "entries": [
+            {
+              "item": "longwen_fazhang",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 420,
+          "entries": [
+            {
+              "item": "wuji_jian",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 700,
+          "entries": [
+            {
+              "item": "jingtiekuijia",
+              "permille": 2500,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "jingtietoukui",
+              "permille": 1500,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "tianzun_daopao",
+              "permille": 1800,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "tianzun_daoguan",
+              "permille": 1200,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "monv_pao",
+              "permille": 1800,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "monv_toukui",
+              "permille": 1200,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
           "permille": 400,
           "entries": [
             {
@@ -1003,6 +1406,98 @@
             {
               "item": "book_banyue",
               "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 420,
+          "entries": [
+            {
+              "item": "caihong_mojian",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 420,
+          "entries": [
+            {
+              "item": "longwen_fazhang",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 420,
+          "entries": [
+            {
+              "item": "wuji_jian",
+              "permille": 10000,
+              "count": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "permille": 800,
+          "entries": [
+            {
+              "item": "jingtiekuijia",
+              "permille": 2500,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "jingtietoukui",
+              "permille": 1500,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "tianzun_daopao",
+              "permille": 1800,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "tianzun_daoguan",
+              "permille": 1200,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "monv_pao",
+              "permille": 1800,
+              "count": [
+                1,
+                1
+              ]
+            },
+            {
+              "item": "monv_toukui",
+              "permille": 1200,
               "count": [
                 1,
                 1

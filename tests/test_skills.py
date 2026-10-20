@@ -568,6 +568,58 @@ def test_entering_a_map_clears_skill_cooldown():
 
 
 @case
+def test_entering_a_map_also_clears_the_attack_window():
+    """"进图即清余韵"包含**攻击窗口**：换图 / 读档后第一刻就能放攻击型技能。
+
+    攻击型技能与普攻共用 ``KEY_ATTACK_PACE``。只清技能冷却（``Cooldowns``）
+    不清这本账的话，"换图后第 1 刻就能放"这句承诺只兑现了一半，实际要等
+    旧图那截窗口——``test_entering_a_map_clears_skill_cooldown`` 会当场红。
+    这条把两个入口都钉住：换图（``travel``）、读档（``SaveStore.load``）。
+    """
+    from mirsolo.actor.systems import KEY_ATTACK_PACE
+    from mirsolo.world.travel import travel
+
+    session, player = _session()
+    try:
+        mage = _make_caster(session, "mage", 7)
+        _learn_with_book(mage, "huozhu")
+        mob = spawn_monster(session.world, DATA, "ji",
+                            x=mage.get(Position).x + 2, y=mage.get(Position).y)
+        session.cast_skill(mage, "huozhu", mob)
+        session.step(1)
+        assert (session.world.get_data(KEY_ATTACK_PACE) or {}).get(mage.id) == 1, (
+            "前置条件不成立：攻击型技能没占攻击窗口")
+
+        # ① 换图：窗口账上不该再有自己的记录
+        travel(session, "biqi_mine_1")
+        assert mage.id not in (session.world.get_data(KEY_ATTACK_PACE) or {}), \
+            "换图没清攻击窗口"
+        px, py = mage.get(Position).x, mage.get(Position).y
+        mob2 = spawn_monster(session.world, DATA, "ji", x=px + 2, y=py)
+        mp0 = mage.get(Vitals).mp
+        session.cast_skill(mage, "huozhu", mob2)
+        session.step(1)
+        assert mage.get(Vitals).mp < mp0, "换图后第 1 刻被旧图的攻击窗口挡住了"
+
+        # ② 读档：同一份承诺
+        assert (session.world.get_data(KEY_ATTACK_PACE) or {}).get(mage.id), \
+            "前置条件不成立：读档前不在窗口里"
+        with tempfile.TemporaryDirectory() as tmp:
+            SaveStore(tmp).write(session, "slot1")
+            SaveStore(tmp).load(session, "slot1")
+        assert mage.id not in (session.world.get_data(KEY_ATTACK_PACE) or {}), \
+            "读档没清攻击窗口"
+        px, py = mage.get(Position).x, mage.get(Position).y
+        mob3 = spawn_monster(session.world, DATA, "ji", x=px + 2, y=py)
+        mp1 = mage.get(Vitals).mp
+        session.cast_skill(mage, "huozhu", mob3)
+        session.step(1)
+        assert mage.get(Vitals).mp < mp1, "读档后第 1 刻被旧窗口挡住了"
+    finally:
+        session.shutdown()
+
+
+@case
 def test_skill_kind_partition_is_pinned():
     """kind 分区钉死：数据表新增 kind 时，本测试会红——必须同时决定实现批次。"""
     kinds = {spec["kind"] for spec in SKILLS.values()}

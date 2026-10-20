@@ -24,6 +24,8 @@ from mirsolo.components import (
     Loadout,
     Paralysis,
     Poison,
+    Position,
+    Progression,
     Shield,
     SiegeObjective,
     Vitals,
@@ -40,6 +42,41 @@ EVT_MISS = "combat:miss"
 EVT_DEATH = "combat:death"
 EVT_HEAL = "combat:heal"
 EVT_POISON = "combat:poison"
+#: 攻击意图被门拦下（目前只有距离门）。与 ``skill:rejected`` 同一条回音纪律：
+#: 拒绝必须带原因码，表现层据此弹一句提示，不许静默丢弃——按键没反应，
+#: 玩家只会以为键坏了，想不到是"够不着"。
+EVT_ATTACK_REJECTED = "combat:rejected"
+
+#: 普攻（近战）的接触距离，切比雪夫格数。
+#:
+#: 普攻不像技能那样有一张 ``skills.json`` 可读 ``range``，所以这一格就是它
+#: **唯一**的射程来源：表现层选目标、headless 冒烟出刀、结算门三处都从这里取。
+#: 各写一份 ``1`` 的话，迟早出现"HUD 够得着、结算说够不着"的分叉。
+MELEE_RANGE = 1
+
+#: 上一次**攻击动作**（普攻 / 攻击型技能）的刻：``{实体 id: 刻}``。
+#:
+#: 这是"出手节奏"唯一的账。普攻（``AttackSystem``）与攻击型技能
+#: （``SkillSystem``）都在这里记账、都来这里查——两套节奏各记一本的话，
+#: 迟早长成两个数（技能侧曾经根本不过门，``gongsha`` cd=0 每刻可放）。
+#:
+#: 放在本模块而不是 ``actor/systems.py``：两个消费者分属 ``actor`` 与
+#: ``skills`` 两个包，谁 import 谁都会造出循环；这里是它们本来就共用的下层。
+#:
+#: 刻意**不进存档**（``save.schema.WORLD_KEYS`` 不含它）：读档后"随时能出
+#: 第一刀"才是对的，把"读档瞬间刚好在冷却里"固化下来只会造出无法复现的手感。
+KEY_ATTACK_PACE = "attack_pace"
+
+
+def chebyshev(a: Position, b: Position) -> int:
+    """网格距离（切比雪夫 ``max(|dx|, |dy|)``）——全项目**唯一**一把尺子。
+
+    为什么不是欧氏：移动是八向一格，斜着走与直着走同样花一刻。改用欧氏距离
+    会让斜对角在射程判定上平白吃亏（半径 1 的圆里根本装不下斜角格），
+    于是"明明贴着脸却打不到"。索敌（``vision``）、追击、技能射程早就都是
+    这把尺子，普攻的距离门不能换一把。
+    """
+    return int(max(abs(a.x - b.x), abs(a.y - b.y)))
 
 
 @dataclass
@@ -67,6 +104,42 @@ class CombatContext:
 def _stream(prefix: str, attacker: Entity, defender: Entity, tick: int) -> str:
     """随机流名：包含双方实体 id 与刻度 → 结果与调用顺序无关。"""
     return f"{prefix}:{attacker.id}->{defender.id}@{tick}"
+
+
+#: 普攻的伤害源：**每个职业读自己那一条**（战士 dc / 法师 mc / 道士 sc）。
+#:
+#: 为什么按职业查表，而不是"武器给了哪一项就取哪一项"：伤害源是**职业**的属性，
+#: 不是手上那件武器的属性。看起来"取非空的那个"也能跑通（战士武器只有 ``atk``、
+#: 法杖只有 ``mc``、道剑只有 ``sc``），但它有三个坑：
+#:
+#: 1. 赤手空拳时一件武器都没有，只能另行兜底——兜底的那次又会是 dc，
+#:    于是"拿剑的道士"和"空手的道士"走两条不同分支；
+#: 2. 通用装备（``huoyan_jiezhi`` 给全职业 ``atk[1,3]``）会让每个职业都"非空"，
+#:    这时候"取非空"挑出来的东西随穿搭而变，同一次攻击换个戒指就换一套口径；
+#: 3. 它把"谁看哪一条"这条规则散进数据表，以后加一件双属性装备就要重新吵一遍。
+#:
+#: 查表把这条规则收在一处：战士/法师/道士互不牵连——今天只修道士，
+#: 战士的普攻一刀都不会多也不会少（``tests/test_taoist_sc.py`` 里那条对照盯着）。
+#:
+#: 表里没有的一律回落 ``dc``：怪物、佣兵、召唤物都**没有** ``Progression``，
+#: 它们的伤害本来就写在 ``Attributes.dc`` 上（``factory._build_combatant``）。
+PHYSICAL_SOURCE_BY_CLASS: dict[str, str] = {
+    "warrior": "dc",
+    "mage": "mc",
+    "taoist": "sc",
+}
+
+
+def physical_power(attacker: Entity, attr: Attributes) -> tuple[int, int]:
+    """普攻的伤害区间 = 出手方**本职业**那一条攻击属性。
+
+    抽成模块级函数而不是塞进 ``physical()`` 的一行：``tmp_q1/p3_redcheck.py``
+    的红证要把它整体换掉（模拟"修复被退回"），行内的表达式没法整体替换。
+    """
+    prog = attacker.get(Progression)
+    if prog is None:
+        return attr.dc
+    return getattr(attr, PHYSICAL_SOURCE_BY_CLASS.get(prog.class_id, "dc"))
 
 
 class CombatResolver:
@@ -248,14 +321,19 @@ class CombatResolver:
     # ── 公共面 ──────────────────────────────────────
 
     def physical(self, attacker: Entity, defender: Entity, *, power_permille: int = 1000):
-        """物理攻击（普攻 / 战士技能）。"""
+        """物理攻击（普攻 / 战士技能）。
+
+        伤害源按职业取（见 :data:`PHYSICAL_SOURCE_BY_CLASS`）：道士的武器给的是
+        ``sc``，普攻却读 ``dc`` 的话，他 L34 拿着 sc 6~11 的银蛇剑只打得出 dc 8~17
+        里最低的那几刀 —— 每杀 173~226 刀的由来。
+        """
         atk_attr = attacker.get(Attributes)
         def_attr = defender.get(Attributes)
         if atk_attr is None or def_attr is None:
             raise ValueError("物理攻击需要双方都有 Attributes 组件")
         rng = Rng(self.ctx.seed, _stream("physical", attacker, defender, self.ctx.tick))
         outcome = formulas.resolve_physical(
-            dc=atk_attr.dc,
+            dc=physical_power(attacker, atk_attr),
             accuracy=atk_attr.accuracy,
             ac=def_attr.ac,
             agility=def_attr.agility,

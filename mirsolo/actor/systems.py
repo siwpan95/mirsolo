@@ -15,7 +15,7 @@
 | 14 | ``MobChaseSystem`` | 怪物追击（切比雪夫，八向一格） |
 | 20 | ``RingEffectSystem`` | 特戒持续效果（隐身戒指结隐；摘下即自然失效） |
 | 28 | ``MobAttackSystem`` | 相邻怪按自身攻速排队出刀 |
-| 30 | ``AttackSystem`` | 消费攻击意图队列 → 调 ``CombatResolver`` 结算 |
+| 30 | ``AttackSystem`` | 消费攻击意图队列（够得着才结算）→ 调 ``CombatResolver`` |
 | 40 | ``DeathRewardSystem`` | 结算死亡奖励：经验 + 掉落 + 金币 |
 | 41 | ``CodexSystem`` | 图鉴记账 + 首次解锁奖励（订阅死亡事件） |
 | 42 | ``DeathPenaltySystem`` | 玩家倒地 → 结算死亡惩罚 → 复活（回城/原地） |
@@ -30,7 +30,16 @@ from __future__ import annotations
 
 from allin_engine import Entity, System, World
 
-from mirsolo.combat.resolver import EVT_DEATH, CombatContext, CombatResolver
+from mirsolo.combat.resolver import (
+    EVT_ATTACK_REJECTED,
+    EVT_DEATH,
+    KEY_ATTACK_PACE,
+    MELEE_RANGE,
+    CombatContext,
+    CombatResolver,
+    chebyshev,
+)
+from mirsolo.combat.formulas import LOGIC_TICK_SECONDS, attack_interval_ticks
 from mirsolo.data.loader import GameData
 from mirsolo.components import (
     AiState,
@@ -70,6 +79,18 @@ from mirsolo.progression.exp import add_exp, apply_growth
 
 KEY_TICK = "tick"
 KEY_INTENTS = "attack_intents"
+#: 上一次**攻击动作**的刻（``{实体 id: 刻}``）——出手节奏那本账的键。
+#:
+#: 键本身定义在 :mod:`mirsolo.combat.resolver`：使用者不止普攻这一侧，
+#: ``SkillSystem`` 也要在同一本账上查/记（攻击型技能与普攻共用攻击窗口）。
+#:
+#: 为什么挂世界数据而不是给玩家加个组件：怪的这本账在 ``AiState.last_attack_tick``
+#: 上，但玩家**不能**有 ``AiState``（有了它 ``MobChaseSystem`` 会顺手把玩家也
+#: 挪动起来）。另起一本按实体 id 记的运行时账，与 ``KEY_MINING_VEINS`` 同一形态。
+#:
+#: 刻意**不进存档**（``save.schema.WORLD_KEYS`` 不含它）：读档后"随时能出第一刀"
+#: 才是对的，把"读档瞬间刚好在冷却里"固化下来只会造出无法复现的手感。
+KEY_ATTACK_PACE = KEY_ATTACK_PACE
 KEY_KILL_COUNTS = "kill_counts"
 KEY_REWARDS = "reward_queue"
 KEY_MOVE_INTENT = "move_intent"
@@ -138,6 +159,61 @@ def grant_exp(world: World, data: GameData, entity: Entity, amount: int,
             "tick": tick,
         })
     return int(amount)
+
+
+def player_attack_interval(world: World, attacker: Entity) -> int:
+    """出手间隔（刻）。``0`` = **本层不节流**（怪物/召唤物）。
+
+    ⚠️ 只算玩家：怪物与召唤物的攻速写在 ``monsters.json`` 里，由
+    ``MobAttackSystem`` 在上游排队时自己按 ``max(2, 12 - attack_speed)``
+    卡过一道。这里再卡一次，就等于 ``monsters.json`` 的攻速有了两个消费者，
+    两边迟早长成不一样（这也是本次修复要避免的那种分叉）。
+
+    玩家的攻速写在 ``classes.json``（没有实体组件存它，因为它是**职业常量**——
+    做成组件就得在每次 ``apply_growth`` 时跟着重算一份，那是同一件事两处记）。
+    """
+    ident = attacker.get(Identity)
+    if ident is None or ident.kind != "player":
+        return 0
+    prog = attacker.get(Progression)
+    data = world.get_data("data")
+    if prog is None or data is None:
+        return 0
+    spec = data.classes["classes"].get(prog.class_id) or {}
+    tick_seconds = float(world.get_data("tick_dt") or 0.0) or LOGIC_TICK_SECONDS
+    return attack_interval_ticks(int(spec.get("attack_speed", 1)), tick_seconds)
+
+
+def swing_ready_at(world: World, attacker: Entity) -> int:
+    """下一次能出手的刻（``0`` = 随时能出）。
+
+    这是**攻击窗口**的唯一读法。普攻（``AttackSystem``）与攻击型技能
+    （``SkillSystem``）都调它：各写一份 ``last + interval`` 的话，
+    "窗口多宽"迟早出现两个数（比如某天有人在技能侧写成 ``last + 1``）。
+
+    没攻击过（账上无记录）→ 随时能出：开局不罚站，读档后也不罚站
+    （这本账不进存档）。
+    """
+    interval = player_attack_interval(world, attacker)
+    if interval <= 0:
+        return 0
+    pace = world.get_data(KEY_ATTACK_PACE) or {}
+    last = pace.get(attacker.id)
+    return 0 if last is None else int(last) + interval
+
+
+def mark_swing(world: World, attacker: Entity, tick: int) -> None:
+    """记一笔"这一刻出手了"——**只有攻击动作**能调（普攻 / 攻击型技能）。
+
+    治疗 / 护盾 / 隐身 / 召唤不是挥刀，记进来就会变成"放个魔法盾之后
+    10 刻不能普攻"。所以 call-site 在 ``SkillSystem`` 里按 kind 分流，
+    记账本身不猜。
+    """
+    if player_attack_interval(world, attacker) <= 0:
+        return  # 本层不节流的实体（怪物/召唤物）不进这本账
+    pace = dict(world.get_data(KEY_ATTACK_PACE) or {})
+    pace[attacker.id] = int(tick)
+    world.set_data(KEY_ATTACK_PACE, pace)
 
 
 def facing_from_delta(dx: int, dy: int) -> int:
@@ -260,7 +336,12 @@ class MobAttackSystem(System):
         tick = int(world.get_data(KEY_TICK, 0))
         if tick == 0:
             return
-        intents = list(world.get_data(KEY_INTENTS, []))
+        # ⚠️ 只**追加**，不覆写：队列里可能有别人刚做的改动（``SkillSystem``
+        # 优先级 15 在本系统 28 之前跑，攻击型技能落账时会把同一刻属于施法者
+        # 的普攻意图清掉——"一个窗口一个动作"）。用开场读到的快照整体写回，
+        # 等于把那几条又复活了（实测：技能后队列是 0，本系统一进 AttackSystem
+        # 就又看到 1 条，同一刻先放技能又出普攻）。
+        pending: list[dict] = []
         for mob in world.each(AiState, Position, Identity, Vitals):
             ident = mob.get(Identity)
             # 目标（guard）不还手：它没有 AiState，压根进不了这条分支
@@ -282,16 +363,18 @@ class MobAttackSystem(System):
                 continue
             tpos = target.get(Position)
             pos = mob.get(Position)
-            if max(abs(tpos.x - pos.x), abs(tpos.y - pos.y)) > 1:
+            if chebyshev(tpos, pos) > MELEE_RANGE:
                 continue
             spec = self.data.monsters["monsters"].get(ident.species, {})
             interval = max(2, 12 - int(spec.get("attack_speed", 3)))
             if tick - state.last_attack_tick < interval:
                 continue
             state.last_attack_tick = tick
-            intents.append({"attacker": mob, "defender": target,
+            pending.append({"attacker": mob, "defender": target,
                             "kind": "physical", "power_permille": 1000})
-        world.set_data(KEY_INTENTS, intents)
+        if pending:
+            world.set_data(KEY_INTENTS,
+                           list(world.get_data(KEY_INTENTS, [])) + pending)
 
 
 class AuctionSystem(System):
@@ -622,7 +705,7 @@ class AiTargetSystem(System):
                 if other is mob or other.get(Identity).faction == ident.faction:
                     continue
                 opos = other.get(Position)
-                if max(abs(opos.x - pos.x), abs(opos.y - pos.y)) > state.vision:
+                if chebyshev(opos, pos) > state.vision:
                     continue  # 视野外不索敌
                 dist = (opos.x - pos.x) ** 2 + (opos.y - pos.y) ** 2
                 if dist < best_dist:
@@ -721,6 +804,26 @@ class AttackSystem(System):
 
         {"attacker": <Entity>, "defender": <Entity>, "kind": "physical",
          "power_permille": 1000}
+
+    ⚠️ **距离门在这层，不在结算器里**：切比雪夫距离 > ``MELEE_RANGE`` 的意图
+    直接作废并发 ``combat:rejected``，一滴血都不结算。没有这道门，站在地图
+    这头能把那头的攻城城门砍掉（实测：玩家 (5,5)、城门 (47,47)，照样掉血）。
+
+    ⚠️ **攻速门也在这层**（玩家的那一半）：够得着之后还要看"上一次出刀是第
+    几刻"，不足间隔的意图同样作废并发 ``combat:rejected`` / ``cooldown``。
+    放在这里是唯一的结算点——表现层（``app.py``）与无头驱动（``cli/smoke.py``）
+    都只往队列里塞意图，两边各加一份节流必然漏掉无头那条。
+    怪物侧的上游排队（``MobAttackSystem``）不受影响，见
+    :func:`player_attack_interval`。
+
+    门的**顺序**是刻意的：麻痹 → 距离 → 攻速 → 结算。麻痹与够不着都等于
+    "这一刀没挥出去"，不该白白吃掉一次出手（怪物侧同理：``MobAttackSystem``
+    只在够得着时才给意图排队）。
+
+    为什么不把门放进 ``CombatResolver``：结算器同时被普攻、技能、戒指火焰、
+    跳毒共用，各自的"够得着"不是一个数（火球 8 格、毒挂在身上没有距离可言）。
+    塞进结算器就得给每次调用带一个 ``reach`` 参数，而技能那边已经按
+    ``skills.json`` 的 ``range`` 自己验过了——再验一次是第二份真相。
     """
 
     priority = 30
@@ -736,7 +839,9 @@ class AttackSystem(System):
         self.ctx.tick = int(world.get_data(KEY_TICK, 0))
         ready: list[dict] = []
         dropped: list[dict] = []
+        rejected: list[dict] = []
         tick = self.ctx.tick
+        pace: dict = world.get_data(KEY_ATTACK_PACE) or {}
         for intent in intents:
             attacker = intent["attacker"]
             defender = intent["defender"]
@@ -750,6 +855,50 @@ class AttackSystem(System):
                 # 注意与上面"死亡目标"的处理不同——那条会保留意图。
                 dropped.append(intent)
                 continue
+            atk_pos = attacker.get(Position)
+            def_pos = defender.get(Position)
+            if atk_pos is None or def_pos is None:
+                dropped.append(intent)
+                continue
+            distance = chebyshev(atk_pos, def_pos)
+            if distance > MELEE_RANGE:
+                # 够不着：**丢弃**而不是排队等目标走近（与技能拒绝同一条纪律——
+                # 按下的那一下不该在若干刻之后自己生效）。回音靠事件给表现层，
+                # 否则按键没反应，玩家只会以为键坏了。
+                dropped.append(intent)
+                rejected.append({
+                    "attacker": attacker.id,
+                    "defender": defender.id,
+                    "code": "out_of_range",
+                    "reason": f"距离 {distance} 格，够不着（近战 {MELEE_RANGE} 格）",
+                    "distance": distance,
+                    "reach": MELEE_RANGE,
+                    "tick": tick,
+                })
+                continue
+            # 攻速门（玩家）：冷却中 → **丢弃**而不是排队。
+            # 与距离门同一条纪律——按下的那一下不该在若干刻之后自己生效，
+            # 否则解除冷却的一刻会把攒下的刀一次全打出来。
+            # 窗口的判定与记账都走 ``swing_ready_at`` / ``mark_swing``：
+            # 攻击型技能查的是**同一个** ready_at（共用一把尺子）。
+            ready_at = swing_ready_at(world, attacker)
+            if 0 < ready_at and tick < ready_at:
+                dropped.append(intent)
+                # 表现层一帧能排好几个意图（按住空格 = 每帧一次），
+                # 但玩家只需要知道"这一刻在冷却"，同一刻同一人只回一句。
+                if not any(r.get("attacker") == attacker.id
+                           and r.get("code") == "cooldown" for r in rejected):
+                    interval = player_attack_interval(world, attacker)
+                    rejected.append({
+                        "attacker": attacker.id,
+                        "defender": defender.id,
+                        "code": "cooldown",
+                        "reason": f"出手冷却中（{interval} 刻一刀）",
+                        "interval": interval,
+                        "ready_at": ready_at,
+                        "tick": tick,
+                    })
+                continue
             kind = intent.get("kind", "physical")
             power = int(intent.get("power_permille", 1000))
             if kind == "magic":
@@ -759,9 +908,15 @@ class AttackSystem(System):
             else:
                 self.resolver.physical(attacker, defender, power_permille=power)
             ready.append(intent)
+            # 挥出去了才记账：没打过的人（``last is None``）随时能出第一刀，
+            # 开局不用先罚站一个间隔。只有**本层节流**的实体才进这本账——
+            # 怪的节奏记在它自己的 ``AiState`` 上，混进来就是两本账
+            mark_swing(world, attacker, tick)
         # 消费已处理意图（保留未处理的，例如死亡目标）
         handled = {id(i) for i in ready} | {id(i) for i in dropped}
         world.set_data(KEY_INTENTS, [i for i in intents if id(i) not in handled])
+        if rejected and self.ctx.bus is not None:
+            self.ctx.bus.emit(EVT_ATTACK_REJECTED, {"items": rejected})
 
 
 class DeathRewardSystem(System):

@@ -109,6 +109,73 @@ def gate_luck_sources(data=None) -> tuple[bool, str]:
                   + "，".join(f"{cid} {reach[cid]}" for cid in CLASSES) + "）")
 
 
+#: 本职业武器的五个等级档位：与战士 10 级乌木剑、20 级斩马刀、30 级井中月、
+#: 40 级裁决之杖对齐，48 是三职业顶级武器 ``chiyue_*`` 的门槛。
+#:
+#: 40 档是**后来才补进这张表**的，而那正是这条门禁自己最丢人的一段历史：
+#: 补表之前 40~47 级整整 7 级没有武器可换（30 档井中月 → 48 档赤月），
+#: 而档位表里根本没有 40 这一档，于是"把 40 档三件武器全删掉"门禁照样绿——
+#: 缺口能活那么久，原因不是数据漏了，是**门禁的量具漏了**。
+#: 档位表本身也是数据：它决定了门禁能看见哪些洞。
+#: （L40 以后的经验占总量 92.4%，这段空窗等于把整个后期交给 30 档武器。）
+CLASS_WEAPON_TIERS = (10, 20, 30, 40, 48)
+
+#: 一个档位允许"落后"的最大级数。**0 = 每个档位必须有一把 level_req 恰好等于
+#: 该档位的本职业武器**，不许拿上一档的凑数。
+#: 这条一度放宽到 10（"最多落后一档"），那是被数据缺口反过来咬出来的：
+#: 当时战士 20→48 空 28 级、30 档只能拿 20 级斩马刀，不放宽门禁就红。
+#: 但放宽的代价是**单件事故查不出来**——改坏某一档的 ``level_req``，
+#: 下一档的武器会顶上来把洞补掉，门禁照样绿。补完战士 30 档后收回到 0。
+CLASS_WEAPON_MAX_LAG = 0
+
+
+def gate_class_weapon_coverage(data=None) -> tuple[bool, str]:
+    """三职业在 10/20/30/40/48 五个档位都要有**该档位的**本职业武器。
+
+    ``luck-sources`` 按职业分开算，是因为"只对战士开放的装备帮不了法师"；
+    本门禁是同一条道理的另一半：**武器是按职业锁 ``class`` 的**，
+    只看"物品表里有没有 30 级武器"会漏掉"这把 30 级武器法师拿不了"。
+
+    修掉的缺陷形状：法师/道士 2-47 级只有 1 级木剑可用，木剑的攻击力撑不到
+    20 级，两个职业 20 级之后打不动怪；战士 20→48 空 28 级，30 档拿的还是
+    斩马刀。补完 10/20/30 三档后这条门禁把"某一档又没了"钉死——
+    数据表是手录的，漏挂或改坏 ``level_req`` 都会踩，且**改坏一件就红**。
+    """
+    if data is None:
+        from mirsolo.data.loader import GameData
+
+        data = GameData.load()
+    from mirsolo.data.loader import CLASSES
+
+    # 鹤嘴锄占 weapon 槽但它是工具（atk 1-3），不能算"这一档的武器"
+    weapons = [(item_id, spec) for item_id, spec in data.items["items"].items()
+               if spec.get("slot") == "weapon" and not spec.get("tool")]
+    if not weapons:
+        return False, "物品表里没有任何武器"
+
+    starving: list[str] = []
+    evidence: list[str] = []
+    for class_id in CLASSES:
+        usable = [(int(spec.get("level_req", 1)), item_id)
+                  for item_id, spec in weapons
+                  if not spec.get("class") or class_id in spec["class"]]
+        for tier in CLASS_WEAPON_TIERS:
+            ready = [pair for pair in usable if pair[0] <= tier]
+            best_req, best_id = (max(ready, key=lambda pair: pair[0])
+                                 if ready else (0, "无"))
+            lag = tier - best_req
+            if lag > CLASS_WEAPON_MAX_LAG:
+                starving.append(f"{class_id} {tier} 档只有 {best_id}（{best_req} 级，"
+                                f"落后 {lag} 级）")
+            evidence.append(f"{class_id}{tier}={best_id}")
+
+    if starving:
+        return False, "本职业武器断档：" + "；".join(starving)
+    tiers = "/".join(str(t) for t in CLASS_WEAPON_TIERS)
+    return True, (f"三职业在 {tiers} {len(CLASS_WEAPON_TIERS)} 档各有本职业武器（lag ≤ "
+                  f"{CLASS_WEAPON_MAX_LAG}）：" + "，".join(evidence))
+
+
 def gate_ring_effects(data=None) -> tuple[bool, str]:
     """特戒（六枚戒指）：值域合规 + 六效齐备 + **每枚都真能打到**。
 
@@ -1207,6 +1274,8 @@ GATES = [
     ("data-files", "data/ 下九张表齐全且是合法 JSON", gate_data_files),
     ("map-bands", "地图等级带连续且传送图全连通", gate_map_bands),
     ("luck-sources", "幸运只来自武器/项链、值域合规、三职业都凑得到 9", gate_luck_sources),
+    ("class-weapon-coverage", "三职业在 10/20/30/40/48 五档都有本职业武器",
+     gate_class_weapon_coverage),
     ("ring-effects", "六枚特戒六效齐备、参数值域合规、每枚都有掉落来源", gate_ring_effects),
     ("auction-book", "装备/技能书都可寄卖，且底价高于商店回收价", gate_auction_book),
     ("merc-hire", "佣兵门槛练得到、价格递增、全局上限真在起作用", gate_merc_hire),
@@ -1698,6 +1767,61 @@ def _selfcheck() -> int:
     else:
         failures += 1
         print(f"  FAIL save-and-load 未拦住槽名路径穿越（{detail}）")
+
+    # 37) class-weapon-coverage：把战士 30 档那一把摘掉 ——
+    #     战士 30 档就只能拿 20 级斩马刀（落后 10 级 > 0），法师道士不受影响。
+    #     40 档补进来之后这条仍然是"按档卡"而不是"按总数卡"的直接证据：
+    #     摘掉 30 档不准 40 档的裁决之杖顶上来填空。
+    _warrior30 = game.items["items"].pop("jingzhongyue")
+    ok, detail = gate_class_weapon_coverage(game)
+    game.items["items"]["jingzhongyue"] = _warrior30
+    if not ok and "warrior 30 档" in detail and "mage" not in detail:
+        print("  ok   class-weapon-coverage 能拦住战士 30 档空缺（按职业分开算）")
+    else:
+        failures += 1
+        print(f"  FAIL class-weapon-coverage 未拦住战士 30 档空缺（{detail}）")
+
+    # 38) class-weapon-coverage 的关键的一半：只把**一件**中档武器的门槛改差
+    #     一级（道士 10 级乌木道剑 → 11）——改坏一件就得红。
+    #     MAX_LAG 曾经放宽到 10，那时这条破坏会被下一档的武器顶掉、门禁照样绿；
+    #     收到 0 之后它必须红，这条就是那个盲点的报警器。
+    _saved_req = game.items["items"]["wumu_daojian"]["level_req"]
+    game.items["items"]["wumu_daojian"]["level_req"] = 11
+    ok, detail = gate_class_weapon_coverage(game)
+    game.items["items"]["wumu_daojian"]["level_req"] = _saved_req
+    if not ok and "taoist 10 档" in detail:
+        print("  ok   class-weapon-coverage 能拦住单件 level_req 改坏（差一级就红）")
+    else:
+        failures += 1
+        print(f"  FAIL class-weapon-coverage 未拦住单件 level_req 改坏（{detail}）")
+
+    # 39) class-weapon-coverage 的第三半：把法师顶级武器的门槛从 48 抬到 50 ——
+    #     48 档就只能拿 40 级龙纹法杖（落后 8 级），门禁必须红。
+    #     注：补 40 档之前这里落后 18 级（只能拿 30 级骨玉法杖），数字变了但
+    #     判据没变——门禁卡的是"48 档有没有 48 级的武器"，不关心上一档是谁。
+    _saved_req = game.items["items"]["chiyue_mozhang"]["level_req"]
+    game.items["items"]["chiyue_mozhang"]["level_req"] = 50
+    ok, detail = gate_class_weapon_coverage(game)
+    game.items["items"]["chiyue_mozhang"]["level_req"] = _saved_req
+    if not ok and "mage 48 档" in detail:
+        print("  ok   class-weapon-coverage 能拦住顶级门槛被改（法师 48 档落后 8 级）")
+    else:
+        failures += 1
+        print(f"  FAIL class-weapon-coverage 未拦住顶级门槛被改（{detail}）")
+
+    # 40) class-weapon-coverage 与档位表本身：把 40 档三件全摘掉，必须红。
+    #     这条是**扩档前后对照**的固化版——档位表还是 (10,20,30,48) 的时候，
+    #     40~47 级那 7 级空窗就是这么漏过去的：门禁连"40 档"这个概念都没有，
+    #     把整档数据删干净也照样绿。档位表也是数据，它决定门禁能看见哪些洞。
+    _tier40 = {iid: game.items["items"].pop(iid)
+               for iid in ("caihong_mojian", "longwen_fazhang", "wuji_jian")}
+    ok, detail = gate_class_weapon_coverage(game)
+    game.items["items"].update(_tier40)
+    if not ok and all(f"{cid} 40 档" in detail for cid in ("warrior", "mage", "taoist")):
+        print("  ok   class-weapon-coverage 能拦住整档空缺（40 档三件全摘 = 红）")
+    else:
+        failures += 1
+        print(f"  FAIL class-weapon-coverage 未拦住 40 档整档空缺（{detail}）")
 
     print(f"\nselfcheck: {'PASS' if failures == 0 else f'{failures} 条门禁形同虚设'}")
     return 0 if failures == 0 else 1

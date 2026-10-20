@@ -28,8 +28,19 @@ from mirsolo.components import (
     SummonOwner,
     Vitals,
 )
+from mirsolo.actor.systems import (
+    KEY_INTENTS,
+    mark_swing,
+    player_attack_interval,
+    swing_ready_at,
+)
 from mirsolo.actor.factory import spawn_monster
-from mirsolo.combat.resolver import CombatContext, CombatResolver
+from mirsolo.combat.resolver import (
+    KEY_ATTACK_PACE,
+    CombatContext,
+    CombatResolver,
+    chebyshev,
+)
 from mirsolo.data.loader import SKILL_KINDS, GameData
 
 KEY_SKILL_INTENTS = "skill_intents"
@@ -52,6 +63,29 @@ MAX_PROFICIENCY = 3
 
 #: 只能对自己施放的 kind（护盾 / 隐身 / 召唤）
 SELF_KINDS = frozenset({"buff_shield", "buff_invis", "summon"})
+
+#: **攻击动作**的 kind —— 与普攻共用同一个攻击窗口（``KEY_ATTACK_PACE``）。
+#:
+#: 分类依据是数据（``skills.json`` 的 ``kind``），不是技能 id 白名单：
+#: 白名单每加一门技能都要人记一次，漏了就是静默绕过窗口。
+#:
+#: 这六类都是"朝敌人出手、结算伤害或挂伤害状态"：物/魔/道三条伤害路径
+#: （含 AoE 变体）+ 施毒（它这一刻也是朝敌人投一次，杀伤在后续跳伤上）。
+#: 修前它们**完全不过攻速门**：``gongsha``（cd 0、耗蓝 0 的 1.15 倍技）
+#: 每刻可放，实测 60 刻 60 次——刚给普攻关上的门从技能这头原样敞开。
+ATTACK_KINDS = frozenset({
+    "physical", "physical_aoe", "magic", "magic_aoe", "taoist", "poison",
+})
+#: **不是攻击动作**的 kind —— 不占攻击窗口。
+#:
+#: 治疗 / 群体治疗 / 护盾 / 隐身 / 召唤。让它们占窗口会变成"放个魔法盾
+#: 之后 10 刻不能普攻"——盾、药、召唤都不是挥刀，手感上说不通。
+NON_ATTACK_KINDS = frozenset(SKILL_KINDS - ATTACK_KINDS)
+# 两边必须正好把 ``SKILL_KINDS`` 分完（新增 kind 必须同时决定它算不算）。
+# 写成跑时断言而不是测试里的一条：这条是**数据面**约束，loader 校验阶段
+# 就该炸，而不是等到某个用例才发现。
+assert ATTACK_KINDS | NON_ATTACK_KINDS == SKILL_KINDS
+assert ATTACK_KINDS & NON_ATTACK_KINDS == frozenset()
 
 
 class SkillError(ValueError):
@@ -104,7 +138,13 @@ def learn(entity: Entity, data: GameData, skill_id: str) -> None:
 
 
 def can_cast(entity: Entity, data: GameData, skill_id: str) -> tuple[bool, str]:
-    """施放前门控：``(是否可放, 拒绝码)``。拒绝码 ``ok`` 表示可放。"""
+    """施放前门控：``(是否可放, 拒绝码)``。拒绝码 ``ok`` 表示可放。
+
+    这里只判**资源/学习**那几道门——不需要"现在第几刻"这个上下文。
+    攻击窗口（第几刻、上一次出手是第几刻）由 :meth:`SkillSystem._process`
+    在系统内用同一本 ``KEY_ATTACK_PACE`` 账判，读法与普攻共用
+    :func:`mirsolo.actor.systems.swing_ready_at`。
+    """
     spec = _spec(data, skill_id)
     vitals = entity.get(Vitals)
     skills = entity.get(Skills)
@@ -144,8 +184,31 @@ def reset_cooldowns(entity: Entity) -> None:
         comp.remaining.clear()
 
 
+def reset_attack_pace(world: World, entity: Entity) -> None:
+    """清掉这个实体在**攻击窗口**上的记录 —— 与 :func:`reset_cooldowns` 同一时机。
+
+    为什么要清：攻击型技能与普攻共用 ``KEY_ATTACK_PACE`` 这本账，而"进图即清
+    冷却"这句承诺本来就是**出手节奏**的承诺。只清技能冷却、不清窗口的话，
+    换图 / 读档后仍然要等完旧图那截窗口——修前这条路径看着是通的，是因为
+    技能压根不看窗口（门根本没接）；接上之后立刻暴露：换图后第一刻放不出
+    火球（实测第 3 刻被挡）。
+
+    为什么不干脆把整本账清空：这本账是按实体 id 记的，里面可能还有**别的**
+    实体（同图其它玩家/召唤背后的主人）。只删自己那一格。
+    """
+    pace = world.get_data(KEY_ATTACK_PACE) or {}
+    if entity.id in pace:
+        pace = dict(pace)
+        pace.pop(entity.id, None)
+        world.set_data(KEY_ATTACK_PACE, pace)
+
+
 def _within(pos_a: Position, pos_b: Position, rng: int) -> bool:
-    return max(abs(pos_a.x - pos_b.x), abs(pos_a.y - pos_b.y)) <= rng
+    """落点在射程内？与普攻距离门共用同一把尺子（``chebyshev``）。
+
+    两把尺子各写一份的话，"技能 range=1" 与 "普攻贴身一格" 迟早会长成两个数。
+    """
+    return chebyshev(pos_a, pos_b) <= rng
 
 
 def _faction_entities(world: World, faction: int, center: Position,
@@ -251,6 +314,29 @@ class SkillSystem(System):
             ai.leash = max(ai.leash, 24.0)  # 随从要能跟着主人走远一点
         return entity.eid
 
+    # ── 攻击窗口 ────────────────────────────────────
+
+    @staticmethod
+    def _drop_queued_melee(world: World, caster: Entity) -> None:
+        """把这一 tick 队列里**属于施放者**的普攻意图作废。
+
+        语义与攻击窗口里的"冷却中丢弃"完全一致：按下的那一下不该在若干刻
+        之后自己生效，也不该和同一刻的技能一起结算。只动这一个实体的条目，
+        别人的意图原样留在队列里（``AttackSystem`` 还会处理它们）。
+
+        为什么不改成"让 ``AttackSystem`` 自己看窗口"：它**会**看（同一个
+        ``swing_ready_at``），但本 tick 的账已经在前一刻结算前查过了——
+        技能是在那之后才落的账，所以队列里那些意图此刻已经被认为"合法"。
+        要在那里补一次复查就得让 ``AttackSystem`` 知道"技能先于自己跑"，
+        那是把调用顺序固化成一条隐式依赖；在施放处清队列更直白。
+        """
+        intents = world.get_data(KEY_INTENTS, [])
+        if not intents:
+            return
+        kept = [i for i in intents if i.get("attacker") is not caster]
+        if len(kept) != len(intents):
+            world.set_data(KEY_INTENTS, kept)
+
     # ── 系统入口 ────────────────────────────────────
 
     def update(self, world: World, dt: float) -> None:
@@ -282,6 +368,17 @@ class SkillSystem(System):
         ok, code = can_cast(caster, self.data, skill_id)
         if not ok:
             raise SkillError(code, f"技能 {spec['name']} 不可施放：{code}")
+
+        # 攻击窗口：与普攻**同一把尺子**（同一本 ``KEY_ATTACK_PACE`` 账）。
+        # 放在资源门之后、距离门之前——与 ``AttackSystem`` 的门序对齐
+        # （麻痹 → 距离 → 攻速），而且被窗口挡下的施放不该先跑一遍选目标。
+        if spec["kind"] in ATTACK_KINDS:
+            ready_at = swing_ready_at(world, caster)
+            if ready_at > self.ctx.tick:
+                raise SkillError(
+                    "cooldown",
+                    f"出手冷却中（{player_attack_interval(world, caster)} 刻一次攻击动作，"
+                    f"第 {ready_at} 刻才能出手）")
 
         caster_pos = caster.get(Position)
         if caster_pos is None:
@@ -333,6 +430,17 @@ class SkillSystem(System):
         cooldown = float(spec.get("cooldown", 0.0))
         if cooldown > 0:
             caster.get(Cooldowns).remaining[skill_id] = cooldown
+        # 攻击动作占攻击窗口（与普攻**同一本账**）：记账点在扣费之后、
+        # 结算之前——这一刻已经算是"出手了"，与普攻"挥出去了才记账"对齐。
+        # 非攻击动作（治疗/盾/隐身/召唤）不记，见 ``ATTACK_KINDS``。
+        if kind in ATTACK_KINDS:
+            mark_swing(world, caster, self.ctx.tick)
+            # 挤占是**即时的**，不只是"下一刻的普攻被挡"：同一个 tick 里
+            # 已经排着的普攻意图必须当场作废。``SkillSystem`` 的优先级（15）
+            # 高于 ``AttackSystem``（30），不清的话这一刻会先放技能、再
+            # 把普攻也结算掉——一个窗口两个动作，正是"共用一把尺子"要堵的
+            # 那种双份（实测 60 刻内技能 6 次 + 普攻 5 次，且 5 次撞在同一刻）。
+            self._drop_queued_melee(world, caster)
 
         results = self._resolve_kind(kind, caster, victims, power, spec)
 

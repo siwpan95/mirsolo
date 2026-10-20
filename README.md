@@ -107,8 +107,10 @@ mirsolo/
     classes.json        三职业基础属性与成长（含 mc/sc）
     skills.json         技能表（三职业 16 技 + 技能书；P1-S2 起全部 kind 有行为）
     monsters.json       怪物表（23 种，AI 三档：passive/aggressive/elite）
-    items.json          装备 22 件（含 P2 赤月/牛魔终局 6 件 + 幸运项链 2 条 + 特戒 6 枚）
-                        + 技能书 16 本 + 药水 9 件 + 矿石 8 件 + 工具 1 把 + 祝福油（共 57 件）
+    items.json          装备 45 件（武器 18 + 盔甲 10 + 头盔 9 + 特戒 6 + 幸运项链 2；
+                        33~41 档补了三职业各 4 件防具、30/40 档补了 10 件武器，
+                        填掉 15~48 级之间"没有任何防御可换"的空档）
+                        + 技能书 16 本 + 药水 9 件 + 矿石 8 件 + 祝福油 1 件（共 79 件）
     drops.json          掉落表（组权重 + gold 区间；每个怪末尾一组药水，
                         五只 BOSS 再追加一组祝福油——幸运的第二条腿）
     mines.json          矿脉表（四种矿脉：产出条目万分比权重 + 每锄产出率）
@@ -120,13 +122,13 @@ mirsolo/
   docs/
     数据口径.md          逐表来源、近似标记与已知差异
     借鉴记账.md          借鉴对象 / 许可证 / 范围 / 禁区
-  scripts/verify.py     18 条机械门禁（含 --selfcheck 注入破坏自检）
+  scripts/verify.py     19 条机械门禁（含 --selfcheck 注入破坏自检）
   scripts/extend_p2_luck.py  幂等写幸运数据（终局武器 luck 7 + 两条幸运项链）
   scripts/extend_p2_rings.py 幂等写特戒数据（六枚戒指 + 六只 BOSS 的专属掉落组）
-  scripts/extend_p2_auction.py 幂等写寄卖参数（38 件可交易物品的 demand/floor）
+  scripts/extend_p2_auction.py 幂等写寄卖参数（61 件可交易物品的 demand/floor）
   scripts/extend_p2_mercs.py   幂等写佣兵表（三种佣兵 + 等级门槛与名额）
-  scripts/inject_check.py  注入验证：116 处注入，把生产代码改坏，确认回归真的会红
-  tests/run_tests.py    测试聚合 runner（26 模块）
+  scripts/inject_check.py  注入验证：124 处注入，把生产代码改坏，确认回归真的会红
+  tests/run_tests.py    测试聚合 runner（31 模块）
 ```
 
 ## 设计要点
@@ -302,7 +304,7 @@ bad_version / bad_checksum / missing_field / bad_type / no_player / unknown_item
 ## 测试与验收
 
 ```bat
-python -m tests.run_tests              :: 26 个模块，429 项无窗口单测
+python -m tests.run_tests              :: 31 个模块，482 项无窗口单测
 python -m mirsolo.cli.smoke --ticks 3000   :: headless 冒烟（含确定性复跑）
 python -m mirsolo.cli.play --level 50 --gear --siege sabak --shot shots\siege.png
                                        :: 攻城验收：开窗即开战，顶部战役状态条
@@ -318,7 +320,7 @@ python -m mirsolo.cli.play --level 30 --gear --gold 4321 --save tmp\a.json --sho
                                        :: 存档验收：开窗前把这局写盘，HUD 显示 Lv30 / 4321 金
 python -m mirsolo.cli.play --load tmp\a.json --shot shots\p3s6_load.png
                                        :: 读档验收：接着那一局开窗（--level 等开关让位）
-python scripts\verify.py               :: 18 条机械门禁（<1 秒）
+python scripts\verify.py               :: 19 条机械门禁（<1 秒）
 python scripts\verify.py --list        :: 只看门禁清单
 python scripts\verify.py --verbose     :: 每条门禁的证据
 python scripts\verify.py --selfcheck   :: 注入破坏，证明门禁拦得住
@@ -336,8 +338,9 @@ python scripts\inject_check.py         :: 116 处注入，全部要能把测试�
 | `readme-commands` | README 里每条 `python -m` 目标都真实可导入 |
 | `readme-tree-real` | README 项目结构里的路径都真实存在 |
 | `luck-sources` | 幸运只来自武器/项链、值域合规、且**三个职业各自**都凑得到 9 |
+| `class-weapon-coverage` | 三职业在 10/20/30/48 四档都有本职业武器（按职业锁 `class` 分开算，改坏一件就红） |
 | `ring-effects` | 六枚特戒六效齐备、参数值域合规、每枚都有掉落来源 |
-| `auction-book` | 38 件可交易物品都能寄卖，且**底价高于商店回收价**（否则拍卖行白做） |
+| `auction-book` | 61 件可交易物品都能寄卖，且**底价高于商店回收价**（否则拍卖行白做） |
 | `merc-hire` | 佣兵门槛练得到、价格随门槛递增、全局上限**真的够得着**（不许是死约束） |
 | `codex-coverage` | 图鉴覆盖的每一种怪都有掉落来源（不许出现"无掉落"行） |
 | `wear-and-repair` | 每件装备 `durability` 为正、修满 < 买入价、期望寿命落在 100-5000 次命中 |

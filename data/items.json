@@ -85,6 +85,188 @@
         "floor_permille": 550
       }
     },
+    "jingzhongyue": {
+      "name": "井中月",
+      "slot": "weapon",
+      "class": [
+        "warrior"
+      ],
+      "atk": [
+        10,
+        20
+      ],
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 22,
+      "durability": 21,
+      "level_req": 30,
+      "price": 7000,
+      "tier": "common",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 650,
+        "floor_permille": 600
+      }
+    },
+    "wumu_fazhang": {
+      "name": "乌木法杖",
+      "slot": "weapon",
+      "class": [
+        "mage"
+      ],
+      "atk": null,
+      "mc": [
+        2,
+        5
+      ],
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 7,
+      "durability": 12,
+      "level_req": 10,
+      "price": 900,
+      "tier": "common",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 400,
+        "floor_permille": 500
+      }
+    },
+    "wumu_daojian": {
+      "name": "乌木道剑",
+      "slot": "weapon",
+      "class": [
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": [
+        2,
+        5
+      ],
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 8,
+      "durability": 13,
+      "level_req": 10,
+      "price": 900,
+      "tier": "common",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 400,
+        "floor_permille": 500
+      }
+    },
+    "yanyue_fazhang": {
+      "name": "偃月法杖",
+      "slot": "weapon",
+      "class": [
+        "mage"
+      ],
+      "atk": null,
+      "mc": [
+        4,
+        8
+      ],
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 9,
+      "durability": 15,
+      "level_req": 20,
+      "price": 3200,
+      "tier": "common",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 550,
+        "floor_permille": 550
+      }
+    },
+    "xiangmo_jian": {
+      "name": "降魔剑",
+      "slot": "weapon",
+      "class": [
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": [
+        4,
+        8
+      ],
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 10,
+      "durability": 16,
+      "level_req": 20,
+      "price": 3200,
+      "tier": "common",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 550,
+        "floor_permille": 550
+      }
+    },
+    "guyu_fazhang": {
+      "name": "骨玉法杖",
+      "slot": "weapon",
+      "class": [
+        "mage"
+      ],
+      "atk": null,
+      "mc": [
+        6,
+        11
+      ],
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 11,
+      "durability": 17,
+      "level_req": 30,
+      "price": 7000,
+      "tier": "common",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 650,
+        "floor_permille": 600
+      }
+    },
+    "yinshe_jian": {
+      "name": "银蛇剑",
+      "slot": "weapon",
+      "class": [
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": [
+        6,
+        11
+      ],
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 12,
+      "durability": 19,
+      "level_req": 30,
+      "price": 7000,
+      "tier": "common",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 650,
+        "floor_permille": 600
+      }
+    },
     "buyi": {
       "name": "布衣",
       "slot": "armor",
@@ -232,6 +414,360 @@
       "auction": {
         "demand_bp": 400,
         "floor_permille": 500
+      }
+    },
+    "tiekuijia": {
+      "name": "铁盔甲",
+      "slot": "armor",
+      "class": [
+        "warrior"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        5,
+        8
+      ],
+      "mac": [
+        1,
+        2
+      ],
+      "accuracy": 0,
+      "weight": 22,
+      "durability": 24,
+      "level_req": 33,
+      "price": 12000,
+      "tier": "common",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 400,
+        "floor_permille": 500
+      }
+    },
+    "tietoukui": {
+      "name": "铁头盔",
+      "slot": "helmet",
+      "class": [
+        "warrior"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        3,
+        5
+      ],
+      "mac": [
+        1,
+        2
+      ],
+      "accuracy": 0,
+      "weight": 10,
+      "durability": 16,
+      "level_req": 35,
+      "price": 7500,
+      "tier": "common",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 400,
+        "floor_permille": 500
+      }
+    },
+    "jingtiekuijia": {
+      "name": "精铁盔甲",
+      "slot": "armor",
+      "class": [
+        "warrior"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        7,
+        10
+      ],
+      "mac": [
+        2,
+        3
+      ],
+      "accuracy": 0,
+      "weight": 26,
+      "durability": 26,
+      "level_req": 40,
+      "price": 15000,
+      "tier": "rare",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 750,
+        "floor_permille": 620
+      }
+    },
+    "jingtietoukui": {
+      "name": "精铁头盔",
+      "slot": "helmet",
+      "class": [
+        "warrior"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        4,
+        6
+      ],
+      "mac": [
+        1,
+        3
+      ],
+      "accuracy": 0,
+      "weight": 11,
+      "durability": 18,
+      "level_req": 41,
+      "price": 9000,
+      "tier": "rare",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 750,
+        "floor_permille": 620
+      }
+    },
+    "fashi_changpao": {
+      "name": "法师长袍",
+      "slot": "armor",
+      "class": [
+        "mage"
+      ],
+      "atk": null,
+      "mc": [
+        1,
+        2
+      ],
+      "sc": null,
+      "ac": [
+        3,
+        6
+      ],
+      "mac": [
+        2,
+        3
+      ],
+      "accuracy": 0,
+      "weight": 8,
+      "durability": 14,
+      "level_req": 33,
+      "price": 9000,
+      "tier": "common",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 400,
+        "floor_permille": 500
+      }
+    },
+    "fashi_toukui": {
+      "name": "法师头盔",
+      "slot": "helmet",
+      "class": [
+        "mage"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        2,
+        4
+      ],
+      "mac": [
+        1,
+        2
+      ],
+      "accuracy": 0,
+      "weight": 5,
+      "durability": 12,
+      "level_req": 34,
+      "price": 6000,
+      "tier": "common",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 400,
+        "floor_permille": 500
+      }
+    },
+    "monv_pao": {
+      "name": "魔女法袍",
+      "slot": "armor",
+      "class": [
+        "mage"
+      ],
+      "atk": null,
+      "mc": [
+        1,
+        3
+      ],
+      "sc": null,
+      "ac": [
+        5,
+        8
+      ],
+      "mac": [
+        3,
+        4
+      ],
+      "accuracy": 0,
+      "weight": 10,
+      "durability": 18,
+      "level_req": 40,
+      "price": 12000,
+      "tier": "rare",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 750,
+        "floor_permille": 620
+      }
+    },
+    "monv_toukui": {
+      "name": "魔女头盔",
+      "slot": "helmet",
+      "class": [
+        "mage"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        3,
+        5
+      ],
+      "mac": [
+        2,
+        3
+      ],
+      "accuracy": 0,
+      "weight": 6,
+      "durability": 15,
+      "level_req": 41,
+      "price": 7500,
+      "tier": "rare",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 750,
+        "floor_permille": 620
+      }
+    },
+    "daopao": {
+      "name": "道袍",
+      "slot": "armor",
+      "class": [
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        4,
+        7
+      ],
+      "mac": [
+        2,
+        3
+      ],
+      "accuracy": 0,
+      "weight": 12,
+      "durability": 18,
+      "level_req": 33,
+      "price": 10500,
+      "tier": "common",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 400,
+        "floor_permille": 500
+      }
+    },
+    "daoguan": {
+      "name": "道冠",
+      "slot": "helmet",
+      "class": [
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        2,
+        4
+      ],
+      "mac": [
+        1,
+        2
+      ],
+      "accuracy": 0,
+      "weight": 6,
+      "durability": 13,
+      "level_req": 34,
+      "price": 6000,
+      "tier": "common",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 400,
+        "floor_permille": 500
+      }
+    },
+    "tianzun_daopao": {
+      "name": "天尊道袍",
+      "slot": "armor",
+      "class": [
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        6,
+        9
+      ],
+      "mac": [
+        3,
+        4
+      ],
+      "accuracy": 0,
+      "weight": 14,
+      "durability": 22,
+      "level_req": 40,
+      "price": 13500,
+      "tier": "rare",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 750,
+        "floor_permille": 620
+      }
+    },
+    "tianzun_daoguan": {
+      "name": "天尊道冠",
+      "slot": "helmet",
+      "class": [
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": null,
+      "ac": [
+        3,
+        5
+      ],
+      "mac": [
+        2,
+        3
+      ],
+      "accuracy": 0,
+      "weight": 7,
+      "durability": 16,
+      "level_req": 41,
+      "price": 7500,
+      "tier": "rare",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 750,
+        "floor_permille": 620
       }
     },
     "book_gongsha": {
@@ -1451,6 +1987,84 @@
       "price": 3000,
       "tier": "rare",
       "auction": null
+    },
+    "caihong_mojian": {
+      "name": "裁决之杖",
+      "slot": "weapon",
+      "class": [
+        "warrior"
+      ],
+      "atk": [
+        15,
+        24
+      ],
+      "mc": null,
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 24,
+      "durability": 23,
+      "level_req": 40,
+      "price": 14000,
+      "tier": "rare",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 750,
+        "floor_permille": 620
+      }
+    },
+    "longwen_fazhang": {
+      "name": "龙纹法杖",
+      "slot": "weapon",
+      "class": [
+        "mage"
+      ],
+      "atk": null,
+      "mc": [
+        9,
+        15
+      ],
+      "sc": null,
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 11,
+      "durability": 18,
+      "level_req": 40,
+      "price": 14000,
+      "tier": "rare",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 750,
+        "floor_permille": 620
+      }
+    },
+    "wuji_jian": {
+      "name": "无极剑",
+      "slot": "weapon",
+      "class": [
+        "taoist"
+      ],
+      "atk": null,
+      "mc": null,
+      "sc": [
+        9,
+        15
+      ],
+      "ac": null,
+      "mac": null,
+      "accuracy": 0,
+      "weight": 13,
+      "durability": 20,
+      "level_req": 40,
+      "price": 14000,
+      "tier": "rare",
+      "kind": "equip",
+      "auction": {
+        "demand_bp": 750,
+        "floor_permille": 620
+      }
     }
   }
 }

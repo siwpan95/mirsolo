@@ -62,7 +62,7 @@ from mirsolo.determinism import fnv1a64
 from mirsolo.items.equipment import recompute
 from mirsolo.progression.exp import apply_growth
 from mirsolo.save import schema
-from mirsolo.skills.engine import reset_cooldowns
+from mirsolo.skills.engine import reset_attack_pace, reset_cooldowns
 
 #: 坐标定点精度：1/1000 瓦片
 POS_SCALE = 1000
@@ -419,11 +419,18 @@ def _set_component(entity: Entity, name: str, blob: dict) -> None:
         setattr(comp, field_name, _field_in(code, blob[field_name]))
 
 
-def _clear_runtime(entity: Entity) -> None:
-    """清空运行时组件：读档 = 重新进图，这一刻的战斗状态已经过去了。"""
+def _clear_runtime(entity: Entity, world: World) -> None:
+    """清空运行时组件：读档 = 重新进图，这一刻的战斗状态已经过去了。
+
+    ``world`` 只为**攻击窗口**那本账（``KEY_ATTACK_PACE``，挂世界数据）：
+    它记的是"上一次攻击动作是第几刻"，与技能冷却属于同一件事（出手的余韵），
+    进图即清。只清冷却不清窗口的话，读档后第一刻放不出攻击型技能——
+    同一个承诺（"进图即清冷却"）被劈成了两半。
+    """
     # 技能冷却与换图走同一个函数（skills.engine.reset_cooldowns），
     # 两边各写一份清除逻辑迟早分叉——见 world/spawn.py 顶部。
     reset_cooldowns(entity)
+    reset_attack_pace(world, entity)
     for name in ("Shield", "Poison", "Invisible", "Downed", "Paralysis"):
         cls = _COMPONENT_CLASSES.get(name)
         if cls is None:
@@ -504,7 +511,7 @@ def load_player(session, comps: dict) -> Entity:
         if vitals.hp <= 0:
             # 存档时还活着，读档却 0 血 = 数据不一致；给 1 点，别造出一个"读档即倒地"
             vitals.hp = 1
-    _clear_runtime(entity)
+    _clear_runtime(entity, session.world)
     return entity
 
 

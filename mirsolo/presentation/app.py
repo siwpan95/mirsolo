@@ -25,7 +25,12 @@ from pyglet.text import Label
 
 from mirsolo.bootstrap import GameSession, build_session, populate
 from mirsolo.determinism import Rng
-from mirsolo.combat.resolver import EVT_DEATH
+from mirsolo.combat.resolver import (
+    EVT_ATTACK_REJECTED,
+    EVT_DEATH,
+    MELEE_RANGE,
+    chebyshev,
+)
 from mirsolo.components import (
     Bag,
     Codex,
@@ -96,8 +101,18 @@ from mirsolo.siege.campaign import (
 from mirsolo.world.travel import EVT_MAP_CHANGED
 
 FONT = "Microsoft YaHei"
-MELEE_RANGE = 1
 TOAST_SECONDS = 1.2
+
+#: 拒绝码 → 人话。技能与普攻共用同一套：同一个 code 不该有两句说法，
+#: "技能说距离太远、普攻说够不着"就是两套真相。
+REJECT_REASONS = {
+    "no_mp": "魔法不足",
+    "cooldown": "冷却中",
+    "not_learned": "尚未学会",
+    "out_of_range": "距离太远",
+    "bad_target": "目标无效",
+    "no_targets": "范围内没有目标",
+}
 
 #: 技能栏键位（与 HUD 的 1..5 一一对应；小键盘也收，避免笔记本外接键盘按不出来）
 SKILL_KEYS = (
@@ -279,6 +294,7 @@ class MirsoloWindow(pyglet.window.Window):
         if bus is not None:
             bus.subscribe(EVT_SKILL_CAST, self._on_skill_cast)
             bus.subscribe("skill:rejected", self._on_skill_rejected)
+            bus.subscribe(EVT_ATTACK_REJECTED, self._on_attack_rejected)
             bus.subscribe(EVT_MAP_CHANGED, self._on_map_changed)
             bus.subscribe(EVT_SIEGE_WON, self._on_siege_won)
             bus.subscribe(EVT_SIEGE_LOST, self._on_siege_lost)
@@ -424,18 +440,29 @@ class MirsoloWindow(pyglet.window.Window):
         items = payload.get("items") or []
         if not items:
             return
-        reasons = {
-            "no_mp": "魔法不足",
-            "cooldown": "冷却中",
-            "not_learned": "尚未学会",
-            "out_of_range": "距离太远",
-            "bad_target": "目标无效",
-            "no_targets": "范围内没有目标",
-        }
         first = items[0]
         name = self.session.data.skills["skills"].get(
             first.get("skill"), {}).get("name", first.get("skill"))
-        self._say(f"{name}：{reasons.get(first.get('code'), first.get('code'))}")
+        self._say(f"{name}：{REJECT_REASONS.get(first.get('code'), first.get('code'))}")
+
+    def _on_attack_rejected(self, payload: dict) -> None:
+        """普攻被门拦下（够不着 / 攻速冷却中）。与技能拒绝同一条回音路子。
+
+        复用 ``combat:rejected`` 而不是另开一个"攻速事件"：这两件事在玩家眼里
+        是同一件事——"我按了攻击，刀没出去"，说法也共用 ``REJECT_REASONS``
+        （``cooldown`` 那一栏本来就在）。开两个事件就要维护两张原因表，
+        迟早出现"够不着说人话、冷却说 code"的分叉。
+        """
+        items = payload.get("items") or []
+        if not items:
+            return
+        first = items[0]
+        text = f"攻击：{REJECT_REASONS.get(first.get('code'), first.get('code'))}"
+        # 按住空格时每刻都会来一条：同一句话已经挂着就别重刷计时器，
+        # 否则这条提示会一直亮着不消失，看着像攻击键卡住了
+        if self._toast == text and time.time() < self._toast_until:
+            return
+        self._say(text)
 
     # ── 事件 ────────────────────────────────────────
 
@@ -774,11 +801,15 @@ class MirsoloWindow(pyglet.window.Window):
             dy -= 1
         return dx, dy
 
-    def _target_in_range(self, reach: int = MELEE_RANGE):
-        """最近的敌对怪（切比雪夫距离 ≤ ``reach``）；没有就返回 None。"""
+    def _nearest_enemy(self) -> tuple:
+        """最近的敌对目标与其切比雪夫距离；场上没有敌人时 ``(None, 10**9)``。
+
+        距离一并交出去，是为了让"够不着"和"压根没敌人"能给出**不同**的回音：
+        空场上也弹一句"距离太远"，等于把提示刷成噪音。
+        """
         player = self.session.world.get_entity("player")
         if player is None:
-            return None
+            return None, 10**9
         faction = player.get(Identity).faction
         ppos = player.get(Position)
         best, best_dist = None, 10**9
@@ -786,11 +817,15 @@ class MirsoloWindow(pyglet.window.Window):
             ident = mob.get(Identity)
             if ident.faction == faction or not mob.get(Vitals).alive:
                 continue
-            mpos = mob.get(Position)
-            dist = int(max(abs(mpos.x - ppos.x), abs(mpos.y - ppos.y)))
+            dist = chebyshev(mob.get(Position), ppos)
             if dist < best_dist:
                 best, best_dist = mob, dist
-        return best if best is not None and best_dist <= reach else None
+        return best, best_dist
+
+    def _target_in_range(self, reach: int = MELEE_RANGE):
+        """最近的敌对怪（切比雪夫距离 ≤ ``reach``）；没有就返回 None。"""
+        best, dist = self._nearest_enemy()
+        return best if best is not None and dist <= reach else None
 
     # ── 技能 ────────────────────────────────────────
 
@@ -844,9 +879,12 @@ class MirsoloWindow(pyglet.window.Window):
         self.session.world.set_data(
             "move_intent", (0, 0) if stalled else self._collect_intent())
         if pyglet.window.key.SPACE in self.pressed and not stalled:
-            target = self._target_in_range()
-            if target is not None:
-                self.session.queue_attack(self.session.world.get_entity("player"), target)
+            enemy, dist = self._nearest_enemy()
+            if enemy is not None and dist <= MELEE_RANGE:
+                self.session.queue_attack(self.session.world.get_entity("player"), enemy)
+            elif enemy is not None:
+                # 够不着必须回一句：静默丢弃的话，按键没反应，玩家只会以为键坏了
+                self._say(REJECT_REASONS["out_of_range"])
         self.session.engine.advance(self._last_real_dt)
         self._report_potion()
         self._report_ore()

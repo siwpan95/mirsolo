@@ -18,7 +18,16 @@ from __future__ import annotations
 from mirsolo.actor import codex
 from mirsolo.actor.factory import spawn_monster
 from mirsolo.bootstrap import build_session, populate
-from mirsolo.components import Attributes, Codex, Identity, Progression, Vitals, Wallet
+from mirsolo.combat.resolver import MELEE_RANGE, chebyshev
+from mirsolo.components import (
+    Attributes,
+    Codex,
+    Identity,
+    Position,
+    Progression,
+    Vitals,
+    Wallet,
+)
 from mirsolo.data.loader import GameData
 from mirsolo.presentation.panels import build_codex_panel
 
@@ -46,7 +55,16 @@ def _session(*, with_spawns: bool = False):
 
 
 def _kill(session, attacker, mob, *, limit: int = 40) -> None:
-    """打直到死（``limit`` 是保险丝，别写成死循环）。"""
+    """打直到死（``limit`` 是保险丝，别写成死循环）。
+
+    出手前先把人挪到**够得着**的格子：普攻有距离门（切比雪夫 1 格），怪摆在
+    (0,0) 而人站在地图中心的话，刀全落空。"走到旁边"这一步放在这里，
+    四个用例就不必各写一份坐标算术。
+    """
+    apos = attacker.get(Position)
+    mpos = mob.get(Position)
+    if apos is not None and mpos is not None and chebyshev(apos, mpos) > MELEE_RANGE:
+        apos.x, apos.y = mpos.x + MELEE_RANGE, mpos.y
     for _ in range(limit):
         session.queue_attack(attacker, mob)
         session.step(1)

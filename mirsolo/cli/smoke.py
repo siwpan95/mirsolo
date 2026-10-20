@@ -19,6 +19,8 @@ import json
 import sys
 
 from mirsolo.bootstrap import build_session, populate
+# 近战接触距离（切比雪夫网格距离）——与结算层的距离门同源，不许在这里另写一个 1
+from mirsolo.combat.resolver import MELEE_RANGE
 from mirsolo.components import (
     Bag,
     Blessing,
@@ -35,9 +37,6 @@ from mirsolo.components import (
 from mirsolo.data.loader import GameData
 from mirsolo.economy.shop import ore_value
 from mirsolo.items import mining
-
-
-MELEE_RANGE = 1  # 近战接触距离（切比雪夫网格距离）
 
 
 def _nearest_alive_monster(session, player):
@@ -94,6 +93,9 @@ def run_simulation(*, ticks: int, seed: int, map_id: str, player_class: str) -> 
                 ppos = player.get(Position)
                 tpos = target.get(Position)
                 if dist <= MELEE_RANGE:
+                    # 每刻都排一刀 = "按住攻击键"。多排的那些由结算层按职业攻速
+                    # 丢弃（``AttackSystem`` 的攻速门），这里不必自己算冷却——
+                    # 算一遍就是第二份攻速，改数值那天必然只改一处
                     session.queue_attack(player, target)
                 else:
                     _step_grid(ppos, tpos)

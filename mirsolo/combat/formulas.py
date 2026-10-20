@@ -280,6 +280,16 @@ def heal_amount(sc: tuple[int, int], rng: Rng, power_permille: int = 1000) -> in
     return max(0, base * power_permille // 1000)
 
 
+# ── 攻速档位 ────────────────────────────────────────
+#
+#: 逻辑步频率（Hz）—— **1 刻 = 0.1 秒**。秒 → 刻的换算必须写清这个依据，
+#: 不许在调用处写裸 ``0.1``（写得散了，改步长那天就得满项目找数）。
+#: 运行时的真值走 ``world.get_data("tick_dt")``（装配层从
+#: ``bootstrap.DEFAULT_TICK_DT`` 写进世界），这里的常量是没有会话时的兜底。
+LOGIC_HZ = 10
+LOGIC_TICK_SECONDS = 1.0 / LOGIC_HZ
+
+
 def attack_interval_seconds(attack_speed: int) -> float:
     """按"攻速档位"折算出手间隔。
 
@@ -288,3 +298,18 @@ def attack_interval_seconds(attack_speed: int) -> float:
     """
     tier = max(1, min(11, attack_speed))
     return round(1.50 - 0.10 * tier, 2)
+
+
+def attack_interval_ticks(attack_speed: int,
+                          tick_seconds: float = LOGIC_TICK_SECONDS) -> int:
+    """出手间隔（**刻**）—— :func:`attack_interval_seconds` 的刻度版本。
+
+    换算就是 ``秒 ÷ 每刻秒数``（即 ``秒 × LOGIC_HZ``）：10Hz 下档位 5 的
+    1.00s 正好是 10 刻。返回至少 1 刻——0 刻等于没有节流。
+
+    为什么"秒"和"刻"两个版本都要有：数据表与文档说的是秒（设计口径），
+    而所有节流判定发生在整数刻上。只留一个版本的话，换算就会散落在
+    调用处，那才是真正的第二份真相。
+    """
+    seconds = attack_interval_seconds(attack_speed)
+    return max(1, int(round(seconds / max(1e-6, float(tick_seconds)))))

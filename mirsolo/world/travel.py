@@ -23,7 +23,7 @@ from allin_engine import System, World
 from mirsolo.actor.systems import KEY_INTENTS, KEY_TICK
 from mirsolo.components import Position, Vitals
 from mirsolo.data.loader import GameData
-from mirsolo.skills.engine import reset_cooldowns
+from mirsolo.skills.engine import reset_attack_pace, reset_cooldowns
 from mirsolo.world.spawn import spawn_map_monsters
 
 EVT_MAP_CHANGED = "world:map_changed"
@@ -146,8 +146,10 @@ def travel(session, target_map_id: str, *, from_map: str | None = None) -> dict:
     x, y = entry_point(data, target_map_id, from_map=from_map or origin)
     pos = player.get(Position)
     pos.x, pos.y = float(x), float(y)
-    # 换图 = 重新进图：旧图攒下的技能冷却不跟着人走（与读档共用同一个函数）
+    # 换图 = 重新进图：旧图攒下的技能冷却**与攻击窗口**都不跟着人走
+    # （与读档共用同一对函数；窗口不清的话第一刻放不出攻击型技能）
     reset_cooldowns(player)
+    reset_attack_pace(session.world, player)
 
     spawned = spawn_map_monsters(session.world, data, target_map_id, session.seed)
     tick = int(session.world.get_data(KEY_TICK, 0) or 0)

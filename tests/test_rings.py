@@ -17,7 +17,13 @@ from __future__ import annotations
 
 from mirsolo.actor.factory import spawn_monster
 from mirsolo.bootstrap import build_session, populate
-from mirsolo.combat.resolver import EVT_DEATH, EVT_HIT, CombatContext, CombatResolver
+from mirsolo.combat.resolver import (
+    EVT_DEATH,
+    EVT_HIT,
+    MELEE_RANGE,
+    CombatContext,
+    CombatResolver,
+)
 from mirsolo.components import (
     Attributes,
     Bag,
@@ -104,6 +110,16 @@ def _dummy(session, *, eid: str = "ring_dummy", hp: int = 10**6,
     vitals = mob.get(Vitals)
     vitals.hp = vitals.max_hp = hp
     return mob
+
+
+def _step_into_reach(player, target):
+    """站到**够得着**的格子再出手（普攻击程 = 切比雪夫 ``MELEE_RANGE`` 格）。
+
+    木桩默认摆在 (0,0) 而角色站在地图中心，加了普攻距离门之后隔着半张图的刀
+    一滴血都不结算。"走过去"这一步放在这里，用例就不必各写一份坐标算术。
+    """
+    pos, tpos = player.get(Position), target.get(Position)
+    pos.x, pos.y = tpos.x + MELEE_RANGE, tpos.y
 
 
 def _expect(code: str, fn, *args, **kwargs):
@@ -215,6 +231,7 @@ def test_paralysis_stops_movement_and_strikes_but_never_bursts():
     # 把劣势项归零：目标不还手，玩家也不会被打死，测的就是"能不能出手"这一件事
     target.get(Attributes).dc = [0, 0]
     player.add(Paralysis(until_tick=10**6, source=None))
+    _step_into_reach(player, target)
 
     pos = player.get(Position)
     start_x, start_y = pos.x, pos.y
@@ -434,6 +451,7 @@ def test_invis_ring_cloaks_breaks_on_strike_and_recloaks_later():
     session.step(1)
     buff = player.get(Invisible)
     assert buff is not None and buff.until_tick == 1 + INVIS_TICKS, buff
+    _step_into_reach(player, target)
 
     session.queue_attack(player, target)
     session.step(1)                       # 这一刻：先结隐 → 再出手 → 出手即破隐
