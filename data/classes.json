@@ -9,7 +9,7 @@
       "name": "战士",
       "desc": "近战肉盾，高血高防，靠烈火与刺杀打爆发。",
       "hp_base": 20,
-      "hp_per_level": 4,
+      "hp_per_level": 5,
       "mp_base": 0,
       "mp_per_level": 0,
       "dc_base": [

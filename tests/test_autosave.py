@@ -313,7 +313,7 @@ def test_vitals_survive_a_full_autosave_round_trip():
     other_player = populate(other, player_class="warrior")["player"]
     SaveStore(directory).load(other, AUTO_SLOT)
     assert other_player.get(Vitals).hp == 40, other_player.get(Vitals).hp
-    assert other_player.get(Vitals).max_hp == 136, other_player.get(Vitals).max_hp
+    assert other_player.get(Vitals).max_hp == 165, other_player.get(Vitals).max_hp
 
 
 def run() -> tuple[int, int]:

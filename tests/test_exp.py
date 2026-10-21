@@ -121,15 +121,15 @@ def test_grow_attributes_level_one_is_base():
 
 @case
 def test_grow_attributes_level_five():
-    """5 级（n=4）：HP 36 / DC 2-4 / AC 0-3 / 准确 7 / 敏捷 5 / 负重 38。
+    """5 级（n=4）：HP 40 / DC 2-4 / AC 0-3 / 准确 7 / 敏捷 5 / 负重 38。
 
-    手算：hp 20+4×4=36；dc_min 1+4//4=2；dc_max 2+4//2=4；
+    手算：hp 20+5×4=40；dc_min 1+4//4=2；dc_max 2+4//2=4；
     ac_min 0+4//5=0；ac_max 2+4//3=3；准确 5+4//2=7；敏捷 5+4//5=5。
     """
     warrior = DATA.classes["classes"]["warrior"]
     grown = grow_attributes(warrior, 5)
     assert grown == {
-        "hp_max": 36, "mp_max": 0, "dc": (2, 4), "mc": (0, 0), "sc": (0, 0),
+        "hp_max": 40, "mp_max": 0, "dc": (2, 4), "mc": (0, 0), "sc": (0, 0),
         "ac": (0, 3), "mac": (0, 0), "accuracy": 7, "agility": 5, "max_weight": 38,
     }, grown
 
@@ -156,7 +156,7 @@ def test_apply_growth_heals_to_full():
     body = Body()
     entity = _FakeEntity(prog, vitals, attr, body)
     apply_growth(entity, DATA.classes["classes"]["warrior"])
-    assert vitals.max_hp == 36 and vitals.hp == 36
+    assert vitals.max_hp == 40 and vitals.hp == 40
     assert attr.dc == (2, 4) and attr.ac == (0, 3)
     assert body.max_weight == 38
 

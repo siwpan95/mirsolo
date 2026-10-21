@@ -10,7 +10,7 @@
    （``max_mp == 0``）永远不会自动灌蓝药；
 6. **药水组追加在掉落表末尾**，既有装备组的随机流下标一个都没挪。
 
-字面量原则：期望值写死（20 / 50 / 100 / 200 / 700 / 136 / 186 …），
+字面量原则：期望值写死（20 / 50 / 100 / 200 / 700 / 165 / 244 …），
 不从数据表推导，也不自指调生产函数来算期望值。
 """
 
@@ -53,7 +53,7 @@ W_MP_L = 3
 W_MP_X = 4
 W_HP_M = 2
 
-WARRIOR_30_HP = 136    # 战士 30 级 max_hp（20 + 29×4）
+WARRIOR_30_HP = 165    # 战士 30 级 max_hp（20 + 29×5）
 WARRIOR_30_WEIGHT = 88 # 战士 30 级负重（30 + 29×2）
 MAGE_30_HP = 72        # 法师 30 级 max_hp（14 + 29×2）
 MAGE_30_MP = 244       # 法师 30 级 max_mp（12 + 29×8）
@@ -245,16 +245,16 @@ def test_drinking_heals_and_consumes_exactly_one():
 
 @case
 def test_healing_never_overshoots_the_maximum():
-    """回血夹在上限：40 + 大药 100 = 140，但 30 级战士上限是 136。"""
+    """回血夹在上限：100 + 大药 100 = 200，30 级战士上限 165 夹满。"""
     session, player = _session()
     try:
         _at_level(player, "warrior", 30)
         vitals = player.get(Vitals)
-        vitals.hp = 40
+        vitals.hp = 100
         player.get(Bag).add("hp_potion_l", 1)
         got = potion.drink(player, DATA, "hp_potion_l", tick=0)
         assert vitals.hp == WARRIOR_30_HP, vitals.hp
-        assert got["hp"] == WARRIOR_30_HP - 40, got
+        assert got["hp"] == WARRIOR_30_HP - 100, got
     finally:
         session.shutdown()
 
@@ -391,9 +391,9 @@ def test_auto_want_asks_for_hp_below_half():
     try:
         _at_level(player, "warrior", 30)
         vitals = player.get(Vitals)
-        vitals.hp = 60            # 60×1000 = 60000 < 136×500 = 68000
+        vitals.hp = 60            # 60×1000 = 60000 < 165×500 = 82500
         assert potion.auto_want(vitals) == "hp"
-        vitals.hp = 68            # 68000 不小于 68000 → 刚好不触发
+        vitals.hp = 83            # 83000 ≥ 82500 → 刚好不触发
         assert potion.auto_want(vitals) is None
     finally:
         session.shutdown()
@@ -525,7 +525,7 @@ def test_auto_drink_kicks_in_without_any_input():
         vitals.hp = 60
         player.get(Bag).add("hp_potion_l", 2)
         session.step(1)
-        assert vitals.hp == WARRIOR_30_HP, vitals.hp   # 60 + 100 → 夹到 136
+        assert vitals.hp == 160, vitals.hp   # 60 + 100 = 160 < 165：不夹
         assert player.get(Bag).items["hp_potion_l"] == 1
     finally:
         session.shutdown()
@@ -621,7 +621,7 @@ def test_the_shelf_lists_every_potion():
 
 @case
 def test_resupply_buys_a_bundle_sized_for_the_player():
-    """战士 30 级：上限 136 → 半血 68 → 挑大药(100) ×10 = 7000 金；max_mp 0 不买蓝。"""
+    """战士 30 级：上限 165 → 半血 82 → 挑大药(100) ×10 = 7000 金；max_mp 0 不买蓝。"""
     session, player = _session()
     try:
         _at_level(player, "warrior", 30)

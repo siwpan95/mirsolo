@@ -10,7 +10,7 @@
 3. **派生不算、重算**：存档里没有六维 dc/luck/max_hp；读档后由
    ``apply_growth`` + ``recompute`` 现算——存了就会跟装备表分叉。
 4. **血读档要钳进上限**：先重算（此时上限是新的），再钳血。
-   顺序反了，"存盘时 200 血、读档后上限 136"就会留下一个 200/136 的怪物。
+   顺序反了，"存盘时 200 血、读档后上限 165"就会留下一个 200/165 的怪物。
 5. **坏档必须拒读且可分辨**：坏 JSON / 版本不符 / 校验和不符 / 缺字段
    四个码各走各的，**绝不**当空档静默继续（那等于丢掉一整局）。
 6. **原子写**：写一半被掐断不能留下半个存档，也不能先把好档覆盖掉。
@@ -532,7 +532,7 @@ def test_derived_attributes_are_recomputed_not_stored():
 
 @case
 def test_current_hp_is_clamped_into_the_recomputed_ceiling():
-    """存盘时 300 血、读档后上限 136：必须钳成 136，而不是留个 300/136。"""
+    """存盘时 300 血、读档后上限 165：必须钳成 165，而不是留个 300/165。"""
     session, player = _session()
     tmp = _tmpdir()
     try:
@@ -542,8 +542,8 @@ def test_current_hp_is_clamped_into_the_recomputed_ceiling():
         other, fresh, _ = _roundtrip(session, player, tmp)
         try:
             got = fresh.get(Vitals)
-            assert got.max_hp == 136, got.max_hp
-            assert got.hp == got.max_hp == 136, (got.hp, got.max_hp)
+            assert got.max_hp == 165, got.max_hp
+            assert got.hp == got.max_hp == 165, (got.hp, got.max_hp)
         finally:
             other.shutdown()
     finally:
