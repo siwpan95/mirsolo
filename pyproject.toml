@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mirsolo"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "热血传奇单机复刻（致敬，非官方）—— 基于 3dworld + allin-engine 的确定性 ARPG 逻辑核"
 readme = "README.md"
 requires-python = ">=3.11"

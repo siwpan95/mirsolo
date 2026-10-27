@@ -36,6 +36,19 @@ P0→P4 全部完成，项目进入收尾维护期：核心玩法（三职业 / 
 沃玛·祖玛·赤月 / 沙巴克攻城）与单机化改造（存档 / 药水 / 挖矿 / 锻造 / 死亡惩罚 / 持久化）均已落地，
 50 级可达性达标。后续仅做 bug 修复与平衡微调。变更史见 [CHANGELOG.md](CHANGELOG.md)。
 
+## 下载与运行（Windows 发行版）
+
+无需安装 Python：到 [Releases](https://gitee.com/siwpan/mirsolo/releases) 下载
+`mirsolo-v0.1.0-win64.zip`，解压后双击 `mirsolo.exe` 即开玩。
+
+- 校验：压缩包内附 `SHA256SUMS.txt`，`certutil -hashfile mirsolo.exe SHA256` 比对。
+- 存档：默认写在 exe 同级的 `saves/` 目录；数据表（`data/*.json`）已打包进 exe，
+  也可用环境变量 `MIRSOLO_DATA` 指到自定义数据目录（改数值玩法用）。
+- 命令行验收（可选）：`mirsolo-smoke.exe --ticks 20000 --json` 跑 headless 冒烟。
+- 系统要求：Windows 10/11 x64，OpenGL 3.3+（集成显卡即可），无需其他运行库。
+- 构建方法见 [scripts/build_exe.py](scripts/build_exe.py)（`pip install pyinstaller`
+  后跑 `python scripts/build_exe.py`）。
+
 ## 快速开始
 
 ```bat

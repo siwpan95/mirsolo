@@ -6,6 +6,19 @@
 
 ---
 
+## v0.1.0 — 首个 Windows 发行版（2026-10-27）
+
+P0→P4 全部完成后的首个 exe 发行。内容与 P4 验收版一致，仅新增打包能力：
+
+- **发行物**：`mirsolo.exe`（窗口版）+ `mirsolo-smoke.exe`（headless 冒烟命令行版），
+  数据表打包进 exe，`MIRSOLO_DATA` 环境变量可指向外部数据目录
+- **打包脚本**：`scripts/build_exe.py` + `scripts/version_info.txt`
+  （PyInstaller 6.x，构建临时目录与产物已 .gitignore）
+- **发布前验证**：frozen 冒烟 `--ticks 20000 --json` 退出码 0、JSON 摘要与源码运行一致；
+  窗口渲染 `--shot` 出图验收通过
+
+---
+
 ## P4 — 50 级可达性（2026-10-20 ~ 10-21）
 
 目标：把三职业 L33→47 的练级时长压到可玩区间（同口径：3 种子中位数、18000 刻/样本、window 代理）。
